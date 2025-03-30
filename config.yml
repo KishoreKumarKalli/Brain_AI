@@ -1,0 +1,45 @@
+data:
+  raw_dir: 'data/raw'
+  processed_dir: 'data/processed'
+  clinical_dir: 'data/clinical'
+  train_ratio: 0.7
+  val_ratio: 0.15
+  test_ratio: 0.15
+
+preprocessing:
+  target_shape: [128, 128, 128]
+  intensity_normalization: 'min_max'
+  augmentation: true
+
+model:
+  type: 'unet'  # Options: 'unet', 'nnunet', 'monai'
+  input_channels: 1
+  output_channels: 5  # Background + 4 tissue types
+  filters: [16, 32, 64, 128, 256]
+  use_attention: true
+
+training:
+  batch_size: 2
+  epochs: 100
+  learning_rate: 0.0001
+  weight_decay: 0.0001
+  loss: 'dice'  # Options: 'dice', 'cross_entropy', 'combined'
+  optimizer: 'adam'
+  early_stopping_patience: 10
+  device: 'cuda'  # 'cuda' or 'cpu'
+
+inference:
+  batch_size: 1
+  save_predictions: true
+  visualization: true
+
+analysis:
+  volume_analysis: true
+  correlation_analysis: true
+  group_comparison: true
+  significance_level: 0.05
+
+webapp:
+  host: '0.0.0.0'
+  port: 5000
+  debug: true
