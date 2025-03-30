@@ -1512,11 +1512,11 @@ class BrainMRIStatistics:
 
         # Generate detailed evaluation if output path is provided
         if output_path:
-            self._evaluate_and_save_model(model, X_scaled, y, feature_columns, output_path)
+            self.evaluate_and_save_model(model, X_scaled, y, feature_columns, output_path)
 
         return model, cv_scores, feature_importance
 
-    def _evaluate_and_save_model(self, model, X, y, feature_names, output_path):
+    def evaluate_and_save_model(self, model, X, y, feature_names, output_path):
         """
         Perform detailed model evaluation and save results.
 
