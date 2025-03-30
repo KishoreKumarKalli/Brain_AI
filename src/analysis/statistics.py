@@ -517,14 +517,3 @@ class BrainMRIStatistics:
 
     def longitudinal_analysis(self, longitudinal_df, subject_id_col='subject_id', time_col='visit',
                               measure_cols=None, group_col=None):
-        """
-        Perform longitudinal analysis of brain volumes or clinical measures.
-
-        Args:
-            longitudinal_df (pandas.DataFrame): DataFrame with longitudinal data
-            subject_id_col (str): Column name for subject ID
-            time_col (str): Column name for time/visit
-            measure_cols (list): List of column names with measures to analyze
-            group_col (str): Column name for grouping (e.g., diagnosis)
-
-        Returns:
