@@ -515,5 +515,337 @@ class BrainMRIStatistics:
 
         return results
 
-    def longitudinal_analysis(self, longitudinal_df, subject_id_col='subject_id', time_col='visit',
-                              measure_cols=None, group_col=None):
+    def longitudinal_analysis(self, longitudinal_df, volume_cols, time_col='EXAMDATE',
+                              subject_id_col='PTID', group_col='DX_GROUP',
+                              output_dir=None):
+        """
+        Analyze longitudinal changes in brain volumes over time.
+
+        Args:
+            longitudinal_df (pandas.DataFrame): DataFrame containing longitudinal data
+            volume_cols (list): List of columns containing volume measurements
+            time_col (str): Column name containing examination date/time
+            subject_id_col (str): Column name containing subject identifiers
+            group_col (str): Column name containing diagnostic group labels
+            output_dir (str, optional): Directory to save output files
+
+        Returns:
+            dict: Dictionary containing analysis results
+        """
+        # Ensure time column is properly formatted as datetime
+        if pd.api.types.is_string_dtype(longitudinal_df[time_col]):
+            try:
+                longitudinal_df[time_col] = pd.to_datetime(longitudinal_df[time_col])
+            except:
+                print(f"Warning: Could not convert {time_col} to datetime. Treating as categorical.")
+
+        # Sort by subject ID and date
+        longitudinal_df = longitudinal_df.sort_values([subject_id_col, time_col])
+
+        # Calculate time since baseline for each subject
+        longitudinal_df['time_since_baseline'] = longitudinal_df.groupby(subject_id_col)[time_col].transform(
+            lambda x: (x - x.min()).dt.days / 365.25 if pd.api.types.is_datetime64_dtype(x) else 0
+        )
+
+        # Identify subjects with multiple time points
+        visit_counts = longitudinal_df[subject_id_col].value_counts()
+        subjects_with_followup = visit_counts[visit_counts > 1].index.tolist()
+
+        if len(subjects_with_followup) == 0:
+            print("No subjects with longitudinal data found.")
+            return None
+
+        # Filter to only include subjects with follow-up data
+        long_data = longitudinal_df[longitudinal_df[subject_id_col].isin(subjects_with_followup)]
+
+        # Dictionary to store results
+        results = {
+            'rate_of_change': {},
+            'group_differences': {},
+            'mixed_effects': {},
+            'visualization': {}
+        }
+
+        # Calculate annual rate of change for each subject and region
+        rate_of_change_df = []
+
+        for subject in subjects_with_followup:
+            subject_data = long_data[long_data[subject_id_col] == subject]
+
+            # Skip if less than 2 time points
+            if len(subject_data) < 2:
+                continue
+
+            # Get baseline values
+            baseline = subject_data.loc[subject_data['time_since_baseline'].idxmin()]
+
+            # Get last follow-up values
+            last_followup = subject_data.loc[subject_data['time_since_baseline'].idxmax()]
+
+            # Calculate time difference in years
+            time_diff = last_followup['time_since_baseline'] - baseline['time_since_baseline']
+
+            if time_diff <= 0:
+                continue
+
+            # Get diagnostic group (use last visit's diagnosis as current status)
+            if group_col in subject_data.columns:
+                diagnosis = last_followup[group_col]
+            else:
+                diagnosis = 'Unknown'
+
+            # Calculate rate of change for each volume
+            for col in volume_cols:
+                if col not in baseline or col not in last_followup:
+                    continue
+
+                # Calculate absolute and percentage change
+                absolute_change = last_followup[col] - baseline[col]
+                percent_change = (absolute_change / baseline[col]) * 100 if baseline[col] != 0 else np.nan
+
+                # Calculate annualized rate of change
+                annual_absolute_change = absolute_change / time_diff
+                annual_percent_change = percent_change / time_diff
+
+                # Add to results dataframe
+                rate_of_change_df.append({
+                    subject_id_col: subject,
+                    'brain_region': col.replace('_volume', '').replace('_mm3', ''),
+                    'baseline_volume': baseline[col],
+                    'followup_volume': last_followup[col],
+                    'absolute_change': absolute_change,
+                    'percent_change': percent_change,
+                    'follow_up_years': time_diff,
+                    'annual_absolute_change': annual_absolute_change,
+                    'annual_percent_change': annual_percent_change,
+                    'diagnosis': diagnosis
+                })
+
+        # Convert to DataFrame
+        rate_of_change_df = pd.DataFrame(rate_of_change_df)
+        results['rate_of_change']['data'] = rate_of_change_df
+
+        if len(rate_of_change_df) == 0:
+            print("No valid longitudinal measurements found.")
+            return results
+
+        # Create summary statistics of annualized rates of change
+        summary_stats = rate_of_change_df.groupby(['brain_region', 'diagnosis']).agg({
+            'annual_absolute_change': ['mean', 'std', 'min', 'max', 'count'],
+            'annual_percent_change': ['mean', 'std', 'min', 'max']
+        })
+
+        results['rate_of_change']['summary'] = summary_stats
+
+        # Compare atrophy rates between diagnostic groups
+        if group_col in longitudinal_df.columns and len(longitudinal_df[group_col].unique()) > 1:
+            group_diff_results = {}
+
+            for region in rate_of_change_df['brain_region'].unique():
+                region_data = rate_of_change_df[rate_of_change_df['brain_region'] == region]
+
+                if len(region_data) <= 1:
+                    continue
+
+                try:
+                    # One-way ANOVA for group differences in atrophy rate
+                    formula = 'annual_percent_change ~ diagnosis'
+                    model = ols(formula, data=region_data).fit()
+                    anova_table = sm.stats.anova_lm(model, typ=2)
+
+                    # Tukey's HSD post-hoc test for pairwise comparisons
+                    tukey = pairwise_tukeyhsd(
+                        endog=region_data['annual_percent_change'],
+                        groups=region_data['diagnosis'],
+                        alpha=0.05
+                    )
+
+                    group_diff_results[region] = {
+                        'anova': anova_table,
+                        'tukey_hsd': tukey
+                    }
+                except Exception as e:
+                    print(f"Error in group comparison for {region}: {e}")
+
+            results['group_differences'] = group_diff_results
+
+        # Mixed-effects models for longitudinal analysis
+        if len(subjects_with_followup) >= 10:  # Need sufficient subjects for mixed-effects
+            try:
+                import statsmodels.formula.api as smf
+                from statsmodels.regression.mixed_linear_model import MixedLM
+
+                mixed_effects_results = {}
+
+                # Prepare data for mixed models (all time points)
+                mixed_model_data = longitudinal_df[longitudinal_df[subject_id_col].isin(subjects_with_followup)]
+
+                for vol_col in volume_cols:
+                    # Skip if column doesn't exist
+                    if vol_col not in mixed_model_data.columns:
+                        continue
+
+                    try:
+                        # Basic mixed model with random intercept
+                        # Volume ~ time + (1|subject)
+                        formula = f"{vol_col} ~ time_since_baseline"
+
+                        # Add diagnostic group as fixed effect if available
+                        if group_col in mixed_model_data.columns:
+                            formula += f" + {group_col} + time_since_baseline:{group_col}"
+
+                        # Fit mixed model
+                        md = smf.mixedlm(
+                            formula,
+                            mixed_model_data,
+                            groups=mixed_model_data[subject_id_col]
+                        )
+
+                        mdf = md.fit()
+
+                        # Store results
+                        region_name = vol_col.replace('_volume', '').replace('_mm3', '')
+                        mixed_effects_results[region_name] = {
+                            'model_summary': mdf.summary(),
+                            'params': mdf.params.to_dict(),
+                            'pvalues': mdf.pvalues.to_dict()
+                        }
+                    except Exception as e:
+                        print(f"Error in mixed model for {vol_col}: {e}")
+
+                results['mixed_effects'] = mixed_effects_results
+            except ImportError:
+                print("Warning: statsmodels not available for mixed-effects modeling")
+
+        # Create visualizations for longitudinal data
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+
+            # Plot atrophy rates by diagnostic group
+            if group_col in rate_of_change_df.columns and len(rate_of_change_df[group_col].unique()) > 1:
+                try:
+                    for region in rate_of_change_df['brain_region'].unique():
+                        region_data = rate_of_change_df[rate_of_change_df['brain_region'] == region]
+
+                        # Skip regions with insufficient data
+                        if len(region_data) <= 3:
+                            continue
+
+                        fig, ax = plt.subplots(figsize=(10, 6))
+
+                        # Create boxplot of annual percent change by diagnosis
+                        sns.boxplot(x='diagnosis', y='annual_percent_change', data=region_data, ax=ax)
+                        sns.stripplot(x='diagnosis', y='annual_percent_change', data=region_data,
+                                      color='black', alpha=0.5, ax=ax)
+
+                        ax.set_title(f'Annual % Change in {region} Volume by Diagnostic Group')
+                        ax.set_ylabel('Annual % Change')
+                        ax.set_xlabel('Diagnostic Group')
+
+                        # Add horizontal line at zero (no change)
+                        ax.axhline(y=0, color='r', linestyle='--')
+
+                        # Calculate mean values for text annotations
+                        means = region_data.groupby('diagnosis')['annual_percent_change'].mean()
+
+                        # Add mean values as text on plot
+                        for i, group in enumerate(means.index):
+                            ax.text(i, means[group], f'Mean: {means[group]:.2f}%',
+                                    ha='center', va='bottom', fontweight='bold')
+
+                        plt.tight_layout()
+
+                        # Save figure
+                        fig_path = os.path.join(output_dir, f'longitudinal_{region}_change.png')
+                        plt.savefig(fig_path, dpi=300, bbox_inches='tight')
+                        plt.close()
+
+                        # Store path in results
+                        if 'figures' not in results['visualization']:
+                            results['visualization']['figures'] = []
+
+                        results['visualization']['figures'].append(fig_path)
+                except Exception as e:
+                    print(f"Error creating atrophy rate plots: {e}")
+
+            # Create spaghetti plots showing individual trajectories
+            try:
+                for vol_col in volume_cols:
+                    if vol_col not in longitudinal_df.columns:
+                        continue
+
+                    fig, ax = plt.subplots(figsize=(12, 8))
+
+                    # Plot individual subject trajectories
+                    for subject in subjects_with_followup:
+                        subject_data = longitudinal_df[longitudinal_df[subject_id_col] == subject]
+
+                        if len(subject_data) < 2:
+                            continue
+
+                        # Determine line color based on diagnostic group if available
+                        if group_col in subject_data.columns:
+                            diagnosis = subject_data[group_col].iloc[-1]  # Use last diagnosis
+
+                            # Create color map for diagnostic groups
+                            unique_dx = longitudinal_df[group_col].unique()
+                            cmap = plt.cm.get_cmap('viridis', len(unique_dx))
+                            color_map = {dx: cmap(i) for i, dx in enumerate(unique_dx)}
+
+                            line_color = color_map.get(diagnosis, 'gray')
+                            line_alpha = 0.6
+                        else:
+                            line_color = 'steelblue'
+                            line_alpha = 0.3
+
+                        # Plot trajectory
+                        ax.plot(subject_data['time_since_baseline'], subject_data[vol_col],
+                                'o-', alpha=line_alpha, color=line_color)
+
+                    # Add group mean trajectories
+                    if group_col in longitudinal_df.columns:
+                        for group in longitudinal_df[group_col].unique():
+                            group_data = longitudinal_df[longitudinal_df[group_col] == group]
+
+                            # Group by time (rounded to nearest 0.5 year)
+                            group_data['time_rounded'] = np.round(group_data['time_since_baseline'] * 2) / 2
+                            mean_trajectory = group_data.groupby('time_rounded')[vol_col].mean().reset_index()
+
+                            if len(mean_trajectory) > 1:
+                                ax.plot(mean_trajectory['time_rounded'], mean_trajectory[vol_col],
+                                        'o-', linewidth=3, markersize=8,
+                                        color=color_map.get(group, 'black'),
+                                        label=f'{group} Mean')
+
+                    # Set labels and title
+                    region_name = vol_col.replace('_volume', '').replace('_mm3', '')
+                    ax.set_title(f'{region_name} Volume Over Time')
+                    ax.set_xlabel('Time Since Baseline (years)')
+                    ax.set_ylabel('Volume (mm³)')
+
+                    # Add legend if groups exist
+                    if group_col in longitudinal_df.columns:
+                        ax.legend(title='Diagnostic Group')
+
+                    plt.grid(True, alpha=0.3)
+                    plt.tight_layout()
+
+                    # Save figure
+                    fig_path = os.path.join(output_dir, f'longitudinal_{region_name}_trajectories.png')
+                    plt.savefig(fig_path, dpi=300, bbox_inches='tight')
+                    plt.close()
+
+                    # Store path in results
+                    if 'figures' not in results['visualization']:
+                        results['visualization']['figures'] = []
+
+                    results['visualization']['figures'].append(fig_path)
+
+            except Exception as e:
+                print(f"Error creating trajectory plots: {e}")
+
+        # Save results to CSV
+        if output_dir and len(rate_of_change_df) > 0:
+            rate_of_change_df.to_csv(os.path.join(output_dir, 'longitudinal_rate_of_change.csv'), index=False)
+
+        return results
