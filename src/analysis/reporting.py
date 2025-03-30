@@ -316,7 +316,7 @@ class BrainAIReporting:
 
         return volumes
 
-    def _generate_pdf_subject_report(self, subject_id, original_image, segmentation_result,
+    def generate_pdf_subject_report(self, subject_id, original_image, segmentation_result,
                                      volumes, clinical_data, anomaly_map, diagnosis, filename):
         """
         Generate a PDF report for an individual subject.
@@ -571,7 +571,7 @@ class BrainAIReporting:
         print(f"PDF report generated: {output_path}")
         return str(output_path)
 
-    def _generate_html_subject_report(self, subject_id, original_image, segmentation_result,
+    def generate_html_subject_report(self, subject_id, original_image, segmentation_result,
                                       volumes, clinical_data, anomaly_map, diagnosis, filename):
         """
         Generate an HTML report for an individual subject.
