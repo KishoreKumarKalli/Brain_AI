@@ -849,3 +849,756 @@ class BrainMRIStatistics:
             rate_of_change_df.to_csv(os.path.join(output_dir, 'longitudinal_rate_of_change.csv'), index=False)
 
         return results
+
+    def classification_analysis(self, volumetric_data, clinical_data=None, target_column='DX_GROUP',
+                                features=None, models=None, cv_folds=5, output_dir=None):
+        """
+        Perform classification analysis to predict diagnostic groups based on brain volumes.
+
+        Args:
+            volumetric_data (pd.DataFrame): DataFrame with volumetric measurements
+            clinical_data (pd.DataFrame, optional): DataFrame with clinical measurements
+            target_column (str): Column name containing the target classes
+            features (list, optional): List of features to use for classification
+            models (dict, optional): Dictionary of model names and their instances
+            cv_folds (int): Number of cross-validation folds
+            output_dir (str, optional): Directory to save the results
+
+        Returns:
+            dict: Dictionary containing classification results
+        """
+        print("Performing classification analysis...")
+
+        # Merge data if clinical data is provided
+        if clinical_data is not None:
+            # Find common ID column
+            common_cols = set(volumetric_data.columns) & set(clinical_data.columns)
+            id_col = next((col for col in common_cols
+                           if any(id_term in col.lower() for id_term in ['id', 'subject'])), None)
+
+            if id_col:
+                data = pd.merge(volumetric_data, clinical_data, on=id_col, how='inner')
+            else:
+                print("Warning: No common ID column found. Using only volumetric data.")
+                data = volumetric_data.copy()
+        else:
+            data = volumetric_data.copy()
+
+        # Check if target column exists
+        if target_column not in data.columns:
+            raise ValueError(f"Target column '{target_column}' not found in the data")
+
+        # Drop rows with missing target values
+        data = data.dropna(subset=[target_column])
+
+        # Convert target to string (categorical)
+        data[target_column] = data[target_column].astype(str)
+
+        # Get unique classes
+        classes = data[target_column].unique()
+        if len(classes) < 2:
+            raise ValueError(f"Need at least 2 classes for classification, found {len(classes)}")
+
+        # Select features if not specified
+        if features is None:
+            # Use volumetric features by default
+            features = [col for col in data.columns if any(term in col.lower()
+                                                           for term in ['volume', 'class_', 'region_'])
+                        and col != 'total_brain_volume']
+
+        # Check if we have enough features
+        if len(features) == 0:
+            raise ValueError("No suitable features found for classification")
+
+        # Remove any features with missing values
+        data = data.dropna(subset=features)
+
+        # Prepare X and y
+        X = data[features].values
+        y = data[target_column].values
+
+        # Check if we have enough samples
+        if len(X) < cv_folds * len(classes):
+            print(f"Warning: Very small sample size ({len(X)} samples) for {len(classes)} classes "
+                  f"and {cv_folds} CV folds. Results may not be reliable.")
+
+        # Set up models if not provided
+        if models is None:
+            models = {
+                'Logistic Regression': LogisticRegression(max_iter=1000, class_weight='balanced'),
+                'Random Forest': RandomForestClassifier(n_estimators=100, class_weight='balanced'),
+                'SVM': SVC(probability=True, class_weight='balanced')
+            }
+
+        # Set up cross-validation
+        cv = StratifiedKFold(n_splits=cv_folds, shuffle=True, random_state=42)
+
+        results = {}
+
+        # Create figure for ROC curves
+        plt.figure(figsize=(12, 8))
+
+        # Evaluate each model
+        for name, model in models.items():
+            print(f"Evaluating {name}...")
+
+            # Cross-validation accuracy
+            cv_scores = cross_val_score(model, X, y, cv=cv, scoring='accuracy')
+            mean_accuracy = cv_scores.mean()
+            std_accuracy = cv_scores.std()
+
+            print(f"{name} CV Accuracy: {mean_accuracy:.3f} ± {std_accuracy:.3f}")
+
+            # For binary classification, compute ROC AUC
+            if len(classes) == 2:
+                # Get probabilities from cross-validation
+                y_probs = np.zeros_like(y, dtype=float)
+
+                for train_idx, test_idx in cv.split(X, y):
+                    model.fit(X[train_idx], y[train_idx])
+                    y_probs[test_idx] = model.predict_proba(X[test_idx])[:, 1]
+
+                # Calculate ROC curve
+                fpr, tpr, _ = roc_curve(y == classes[1], y_probs)
+                auc_score = roc_auc_score(y == classes[1], y_probs)
+
+                # Plot ROC curve
+                plt.plot(fpr, tpr, lw=2, label=f'{name} (AUC = {auc_score:.3f})')
+
+                results[name] = {
+                    'accuracy': mean_accuracy,
+                    'std_accuracy': std_accuracy,
+                    'auc': auc_score,
+                    'fpr': fpr,
+                    'tpr': tpr
+                }
+            else:
+                # For multi-class, use one-vs-rest ROC AUC
+                y_probs = np.zeros((len(y), len(classes)))
+
+                for train_idx, test_idx in cv.split(X, y):
+                    model.fit(X[train_idx], y[train_idx])
+                    y_probs[test_idx] = model.predict_proba(X[test_idx])
+
+                # Calculate macro-average ROC AUC
+                auc_scores = []
+                for i, class_name in enumerate(classes):
+                    auc_score = roc_auc_score((y == class_name).astype(int), y_probs[:, i])
+                    auc_scores.append(auc_score)
+
+                macro_auc = np.mean(auc_scores)
+
+                results[name] = {
+                    'accuracy': mean_accuracy,
+                    'std_accuracy': std_accuracy,
+                    'macro_auc': macro_auc,
+                    'class_auc_scores': dict(zip(classes, auc_scores))
+                }
+
+        # Complete ROC curve plot
+        if len(classes) == 2:
+            plt.plot([0, 1], [0, 1], 'k--', lw=2)
+            plt.xlim([0.0, 1.0])
+            plt.ylim([0.0, 1.05])
+            plt.xlabel('False Positive Rate')
+            plt.ylabel('True Positive Rate')
+            plt.title('Receiver Operating Characteristic (ROC)')
+            plt.legend(loc='lower right')
+
+            # Save ROC curve if output directory is provided
+            if output_dir:
+                os.makedirs(output_dir, exist_ok=True)
+                plt.savefig(os.path.join(output_dir, 'roc_curve.png'), dpi=300, bbox_inches='tight')
+
+        plt.close()
+
+        # Feature importance analysis
+        feature_importances = self._analyze_feature_importance(X, y, features, models)
+        results['feature_importances'] = feature_importances
+
+        # Create feature importance plot
+        self._plot_feature_importance(feature_importances, output_dir)
+
+        # Final model training on full dataset
+        final_model = models['Random Forest'] if 'Random Forest' in models else list(models.values())[0]
+        final_model.fit(X, y)
+
+        # Generate confusion matrix
+        y_pred = final_model.predict(X)
+        conf_matrix = confusion_matrix(y, y_pred)
+
+        # Normalize confusion matrix
+        conf_matrix_norm = conf_matrix.astype('float') / conf_matrix.sum(axis=1)[:, np.newaxis]
+
+        # Plot confusion matrix
+        plt.figure(figsize=(10, 8))
+        sns.heatmap(conf_matrix_norm, annot=True, fmt='.2f', cmap='Blues',
+                    xticklabels=classes, yticklabels=classes)
+        plt.xlabel('Predicted Label')
+        plt.ylabel('True Label')
+        plt.title('Normalized Confusion Matrix')
+
+        # Save confusion matrix if output directory is provided
+        if output_dir:
+            plt.savefig(os.path.join(output_dir, 'confusion_matrix.png'), dpi=300, bbox_inches='tight')
+
+        plt.close()
+
+        # Generate classification report
+        class_report = classification_report(y, y_pred, target_names=classes, output_dict=True)
+        results['classification_report'] = class_report
+
+        # Save results to CSV if output directory is provided
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+
+            # Save model performance summary
+            performance_df = pd.DataFrame({
+                'Model': list(models.keys()),
+                'Accuracy': [results[name]['accuracy'] for name in models.keys()],
+                'Std_Accuracy': [results[name]['std_accuracy'] for name in models.keys()]
+            })
+
+            if len(classes) == 2:
+                performance_df['AUC'] = [results[name]['auc'] for name in models.keys()]
+            else:
+                performance_df['Macro_AUC'] = [results[name]['macro_auc'] for name in models.keys()]
+
+            performance_df.to_csv(os.path.join(output_dir, 'model_performance.csv'), index=False)
+
+            # Save classification report
+            report_df = pd.DataFrame(class_report).transpose()
+            report_df.to_csv(os.path.join(output_dir, 'classification_report.csv'))
+
+            # Save feature importances
+            feature_imp_df = pd.DataFrame(feature_importances)
+            feature_imp_df.to_csv(os.path.join(output_dir, 'feature_importance.csv'), index=False)
+
+        return results
+
+    def _analyze_feature_importance(self, X, y, feature_names, models):
+        """
+        Analyze and extract feature importance from different models.
+
+        Args:
+            X (array-like): Feature matrix
+            y (array-like): Target vector
+            feature_names (list): List of feature names
+            models (dict): Dictionary of model names and their instances
+
+        Returns:
+            dict: Dictionary containing feature importance for each model
+        """
+        feature_importances = {}
+
+        for name, model in models.items():
+            # Fit model
+            model.fit(X, y)
+
+            # Extract feature importance
+            if hasattr(model, 'feature_importances_'):  # e.g., Random Forest
+                importances = model.feature_importances_
+            elif hasattr(model, 'coef_'):  # e.g., Linear models
+                importances = np.abs(model.coef_).mean(axis=0) if model.coef_.ndim > 1 else np.abs(model.coef_)
+            else:
+                # Skip if model doesn't provide feature importance
+                continue
+
+            # Create sorted list of feature importances
+            features_importance_dict = dict(zip(feature_names, importances))
+            sorted_features = sorted(features_importance_dict.items(), key=lambda x: x[1], reverse=True)
+
+            feature_importances[name] = {
+                'features': [item[0] for item in sorted_features],
+                'importance': [item[1] for item in sorted_features]
+            }
+
+        return feature_importances
+
+    def _plot_feature_importance(self, feature_importances, output_dir=None):
+        """
+        Plot feature importance for each model.
+
+        Args:
+            feature_importances (dict): Dictionary containing feature importance for each model
+            output_dir (str, optional): Directory to save the plot
+
+        Returns:
+            matplotlib.figure.Figure: Feature importance plot
+        """
+        # Check if feature importances exist
+        if not feature_importances:
+            return None
+
+        # Determine number of models
+        n_models = len(feature_importances)
+
+        # Create figure
+        fig, axes = plt.subplots(n_models, 1, figsize=(12, 6 * n_models))
+
+        # Convert to array if only one model
+        if n_models == 1:
+            axes = [axes]
+
+        # Plot feature importance for each model
+        for i, (name, importance) in enumerate(feature_importances.items()):
+            ax = axes[i]
+
+            # Get features and importance scores
+            features = importance['features']
+            scores = importance['importance']
+
+            # Limit to top 15 features for readability
+            if len(features) > 15:
+                features = features[:15]
+                scores = scores[:15]
+
+            # Plot horizontal bar chart
+            y_pos = np.arange(len(features))
+            ax.barh(y_pos, scores, align='center')
+            ax.set_yticks(y_pos)
+            ax.set_yticklabels([f.replace('_volume_mm3', '').replace('_', ' ').title() for f in features])
+            ax.invert_yaxis()  # Labels read top-to-bottom
+            ax.set_xlabel('Feature Importance')
+            ax.set_title(f'Top Features - {name}')
+
+        plt.tight_layout()
+
+        # Save plot if output directory is provided
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+            plt.savefig(os.path.join(output_dir, 'feature_importance.png'), dpi=300, bbox_inches='tight')
+
+        return fig
+
+    def summarize_group_differences(self, data_df, volume_columns=None, group_column='DX_GROUP',
+                                    output_path=None, alpha=0.05):
+        """
+        Perform statistical comparison of brain volumes between diagnostic groups.
+
+        Args:
+            data_df (pandas.DataFrame): DataFrame containing volume and group data
+            volume_columns (list, optional): List of volume column names to analyze
+            group_column (str): Column name containing group labels
+            output_path (str, optional): Path to save the results
+            alpha (float): Significance level for statistical tests
+
+        Returns:
+            pandas.DataFrame: Summary statistics of group differences
+        """
+        # Validate inputs
+        if group_column not in data_df.columns:
+            raise ValueError(f"Group column '{group_column}' not found in DataFrame")
+
+        # Identify volume columns if not provided
+        if volume_columns is None:
+            volume_columns = [col for col in data_df.columns
+                              if 'volume' in col.lower() and col != 'total_volume']
+
+        # Check if there are enough groups for comparison
+        groups = data_df[group_column].unique()
+        if len(groups) < 2:
+            print("Warning: At least 2 groups needed for comparison. Returning descriptive statistics.")
+            return data_df.groupby(group_column)[volume_columns].describe()
+
+        # Create results dataframe
+        results = pd.DataFrame(columns=[
+            'Region', 'Test', 'p_value', 'Significant', 'Effect_Size',
+            'Group_Means', 'Post_Hoc'
+        ])
+
+        # Analyze each volume column
+        for vol_col in volume_columns:
+            # Skip if column doesn't exist
+            if vol_col not in data_df.columns:
+                continue
+
+            # Prepare data for this volume
+            data = data_df.dropna(subset=[vol_col, group_column])
+
+            # Skip if not enough data
+            if len(data) < 5:
+                continue
+
+            # Format region name for output
+            region_name = vol_col.replace('_volume', '').replace('_mm3', '').replace('class_', '').title()
+
+            # Check for normality using Shapiro-Wilk test for each group
+            # If any group has non-normal distribution or if any group has < 3 samples,
+            # use non-parametric Kruskal-Wallis, otherwise use ANOVA
+            normal_distribution = True
+            small_groups = False
+
+            for group in groups:
+                group_data = data[data[group_column] == group][vol_col]
+                if len(group_data) < 3:
+                    small_groups = True
+                elif len(group_data) < 50:  # Only test normality for reasonably sized samples
+                    _, p = stats.shapiro(group_data)
+                    if p < 0.05:  # Non-normal distribution
+                        normal_distribution = False
+
+            # Group means for reporting
+            group_means = data.groupby(group_column)[vol_col].mean().to_dict()
+            group_means_str = ", ".join([f"{g}: {v:.2f}" for g, v in group_means.items()])
+
+            # Choose appropriate test based on data characteristics
+            if len(groups) == 2:
+                # Two groups: t-test or Mann-Whitney
+                g1 = data[data[group_column] == groups[0]][vol_col]
+                g2 = data[data[group_column] == groups[1]][vol_col]
+
+                if normal_distribution and not small_groups:
+                    # Check for equal variances
+                    _, var_p = stats.levene(g1, g2)
+                    equal_var = var_p >= 0.05
+
+                    # Perform t-test
+                    t_stat, p_value = stats.ttest_ind(g1, g2, equal_var=equal_var)
+
+                    # Calculate Cohen's d effect size
+                    pooled_std = np.sqrt(((len(g1) - 1) * g1.std() ** 2 +
+                                          (len(g2) - 1) * g2.std() ** 2) /
+                                         (len(g1) + len(g2) - 2))
+                    effect_size = abs((g1.mean() - g2.mean()) / pooled_std) if pooled_std != 0 else 0
+                    effect_type = "Cohen's d"
+
+                    # Test name based on variance equality
+                    test_name = "Two-sample t-test (equal var)" if equal_var else "Welch's t-test (unequal var)"
+                    post_hoc = "N/A"
+                else:
+                    # Non-parametric Mann-Whitney U test
+                    u_stat, p_value = stats.mannwhitneyu(g1, g2)
+
+                    # Calculate non-parametric effect size (r = Z/sqrt(N))
+                    n1, n2 = len(g1), len(g2)
+                    z_score = u_stat / np.sqrt(n1 * n2 * (n1 + n2 + 1) / 12)
+                    effect_size = abs(z_score / np.sqrt(n1 + n2))
+                    effect_type = "r (non-parametric)"
+
+                    test_name = "Mann-Whitney U test"
+                    post_hoc = "N/A"
+            else:
+                # More than two groups: ANOVA or Kruskal-Wallis
+                if normal_distribution and not small_groups:
+                    # Perform one-way ANOVA
+                    groups_list = [data[data[group_column] == g][vol_col] for g in groups]
+                    f_stat, p_value = stats.f_oneway(*groups_list)
+
+                    # Calculate eta-squared effect size
+                    # First create ANOVA model with statsmodels for SS values
+                    model = ols(f"{vol_col} ~ C({group_column})", data=data).fit()
+                    anova_table = sm.stats.anova_lm(model, typ=2)
+
+                    # Calculate eta-squared
+                    ss_between = anova_table.loc[f'C({group_column})', 'sum_sq']
+                    ss_total = ss_between + anova_table.loc['Residual', 'sum_sq']
+                    effect_size = ss_between / ss_total if ss_total != 0 else 0
+                    effect_type = "Eta-squared"
+
+                    test_name = "One-way ANOVA"
+
+                    # Perform post-hoc Tukey test if ANOVA is significant
+                    if p_value < alpha:
+                        try:
+                            posthoc = pairwise_tukeyhsd(data[vol_col], data[group_column], alpha=alpha)
+                            posthoc_results = []
+
+                            # Format post-hoc results
+                            for i, (group1, group2, reject) in enumerate(zip(posthoc.data[0],
+                                                                             posthoc.data[1],
+                                                                             posthoc.reject)):
+                                if reject:
+                                    posthoc_results.append(f"{group1} vs {group2}: Significant")
+
+                            post_hoc = "; ".join(posthoc_results) if posthoc_results else "No significant pairs"
+                        except:
+                            post_hoc = "Error in post-hoc test"
+                    else:
+                        post_hoc = "ANOVA not significant"
+                else:
+                    # Perform Kruskal-Wallis H-test
+                    h_stat, p_value = stats.kruskal(*[data[data[group_column] == g][vol_col]
+                                                      for g in groups])
+
+                    # Calculate epsilon-squared effect size for Kruskal-Wallis
+                    n = len(data)
+                    k = len(groups)
+                    effect_size = (h_stat - k + 1) / (n - k) if n != k else 0
+                    effect_type = "Epsilon-squared"
+
+                    test_name = "Kruskal-Wallis H-test"
+
+                    # Perform post-hoc Dunn's test if significant
+                    if p_value < alpha:
+                        try:
+                            from scikit_posthocs import posthoc_dunn
+
+                            # Run Dunn's test
+                            dunn_results = posthoc_dunn(data, val_col=vol_col, group_col=group_column,
+                                                        p_adjust='bonferroni')
+
+                            # Format post-hoc results
+                            posthoc_results = []
+                            for i, g1 in enumerate(groups):
+                                for j, g2 in enumerate(groups):
+                                    if i < j:  # Avoid duplicates
+                                        p = dunn_results[g1][g2]
+                                        if p < alpha:
+                                            posthoc_results.append(f"{g1} vs {g2}: p={p:.3f}")
+
+                            post_hoc = "; ".join(posthoc_results) if posthoc_results else "No significant pairs"
+                        except:
+                            post_hoc = "Error in post-hoc test"
+                    else:
+                        post_hoc = "Kruskal-Wallis not significant"
+
+            # Add result to the dataframe
+            results = results.append({
+                'Region': region_name,
+                'Test': test_name,
+                'p_value': p_value,
+                'Significant': p_value < alpha,
+                'Effect_Size': f"{effect_size:.3f} ({effect_type})",
+                'Group_Means': group_means_str,
+                'Post_Hoc': post_hoc
+            }, ignore_index=True)
+
+        # Save results to CSV if output path is provided
+        if output_path:
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+            results.to_csv(output_path, index=False)
+            print(f"Group difference results saved to {output_path}")
+
+        return results
+
+    def calculate_volume_percentiles(self, volumes_df, reference_group='CN',
+                                     volume_columns=None, group_column='DX_GROUP',
+                                     output_path=None):
+        """
+        Calculate percentiles for brain volumes using a reference group.
+
+        Args:
+            volumes_df (pandas.DataFrame): DataFrame with volume data
+            reference_group (str): Label of the reference group (e.g., 'CN' for Control Normal)
+            volume_columns (list, optional): List of volume column names
+            group_column (str): Column name for group labels
+            output_path (str, optional): Path to save the output
+
+        Returns:
+            pandas.DataFrame: Subject-level percentile data
+        """
+        # Verify reference group exists in data
+        if group_column not in volumes_df.columns:
+            raise ValueError(f"Group column '{group_column}' not found in DataFrame")
+
+        if reference_group not in volumes_df[group_column].values:
+            raise ValueError(f"Reference group '{reference_group}' not found in data")
+
+        # Identify volume columns if not provided
+        if volume_columns is None:
+            volume_columns = [col for col in volumes_df.columns
+                              if 'volume' in col.lower() and col != 'total_volume']
+
+        # Get reference data
+        reference_df = volumes_df[volumes_df[group_column] == reference_group]
+
+        # Create a new dataframe for percentiles
+        result_df = volumes_df.copy()
+
+        # Calculate percentiles for each volume column
+        for vol_col in volume_columns:
+            if vol_col in volumes_df.columns:
+                # Create new column for percentiles
+                percentile_col = f"{vol_col}_percentile"
+
+                # Calculate percentile for each subject based on reference distribution
+                result_df[percentile_col] = result_df[vol_col].apply(
+                    lambda x: stats.percentileofscore(reference_df[vol_col].dropna(), x)
+                )
+
+                # Create categorical assessment based on percentiles
+                assessment_col = f"{vol_col}_assessment"
+
+                # Define function to categorize the percentile
+                def categorize_percentile(p):
+                    if p < 5:
+                        return "Very Low (< 5th)"
+                    elif p < 25:
+                        return "Low (5th-25th)"
+                    elif p < 75:
+                        return "Normal (25th-75th)"
+                    elif p < 95:
+                        return "High (75th-95th)"
+                    else:
+                        return "Very High (> 95th)"
+
+                result_df[assessment_col] = result_df[percentile_col].apply(categorize_percentile)
+
+        # Save results to CSV if output path is provided
+        if output_path:
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+            result_df.to_csv(output_path, index=False)
+            print(f"Volume percentile results saved to {output_path}")
+
+        return result_df
+
+    def build_predictive_model(self, data_df, target_column='DX_GROUP', feature_columns=None,
+                               model_type='random_forest', output_path=None, cv=5):
+        """
+        Build and evaluate machine learning models to predict diagnostic group
+        from brain volume measurements.
+
+        Args:
+            data_df (pandas.DataFrame): DataFrame containing features and target
+            target_column (str): Column name of the target variable
+            feature_columns (list, optional): List of feature column names
+            model_type (str): Type of model to build ('random_forest', 'svm', or 'logistic')
+            output_path (str, optional): Path to save model evaluation results
+            cv (int): Number of cross-validation folds
+
+        Returns:
+            tuple: Model, cross-validation scores, and feature importance
+        """
+        # Validate inputs
+        if target_column not in data_df.columns:
+            raise ValueError(f"Target column '{target_column}' not found in DataFrame")
+
+        # Identify feature columns if not provided
+        if feature_columns is None:
+            feature_columns = [col for col in data_df.columns
+                               if ('volume' in col.lower() or 'ratio' in col.lower())
+                               and 'percentile' not in col.lower()
+                               and 'assessment' not in col.lower()]
+
+        # Drop rows with NaN in target or features
+        analysis_df = data_df.dropna(subset=[target_column] + feature_columns)
+
+        # Check if we have enough data
+        if len(analysis_df) < 10:
+            print("Warning: Not enough data for model building (n < 10)")
+            return None, None, None
+
+        # Prepare X and y
+        X = analysis_df[feature_columns].values
+        y = analysis_df[target_column].values
+
+        # Scale features
+        from sklearn.preprocessing import StandardScaler
+        scaler = StandardScaler()
+        X_scaled = scaler.fit_transform(X)
+
+        # Select and configure model based on type
+        if model_type == 'random_forest':
+            model = RandomForestClassifier(n_estimators=100, random_state=42, class_weight='balanced')
+        elif model_type == 'svm':
+            model = SVC(kernel='rbf', probability=True, class_weight='balanced', random_state=42)
+        elif model_type == 'logistic':
+            model = LogisticRegression(max_iter=1000, class_weight='balanced', random_state=42)
+        else:
+            raise ValueError(f"Unknown model type: {model_type}")
+
+        # Cross-validation
+        cv_obj = StratifiedKFold(n_splits=cv, shuffle=True, random_state=42)
+        cv_scores = cross_val_score(model, X_scaled, y, cv=cv_obj, scoring='accuracy')
+
+        # Train final model on all data
+        model.fit(X_scaled, y)
+
+        # Get feature importance if available
+        feature_importance = None
+        if hasattr(model, 'feature_importances_'):
+            feature_importance = dict(zip(feature_columns, model.feature_importances_))
+
+        # Generate detailed evaluation if output path is provided
+        if output_path:
+            self._evaluate_and_save_model(model, X_scaled, y, feature_columns, output_path)
+
+        return model, cv_scores, feature_importance
+
+    def _evaluate_and_save_model(self, model, X, y, feature_names, output_path):
+        """
+        Perform detailed model evaluation and save results.
+
+        Args:
+            model: Trained classifier model
+            X: Feature matrix
+            y: Target values
+            feature_names: List of feature names
+            output_path: Path to save evaluation results
+        """
+        from sklearn.metrics import (accuracy_score, precision_score, recall_score,
+                                     f1_score, confusion_matrix, classification_report,
+                                     roc_curve, roc_auc_score)
+        import matplotlib.pyplot as plt
+        import seaborn as sns
+
+        # Make predictions
+        y_pred = model.predict(X)
+
+        # For ROC curve, need predicted probabilities
+        if hasattr(model, 'predict_proba'):
+            y_prob = model.predict_proba(X)
+        else:
+            y_prob = None
+
+        # Create directory for output
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
+        # Basic metrics
+        accuracy = accuracy_score(y, y_pred)
+
+        # For multi-class problems, use weighted averaging
+        precision = precision_score(y, y_pred, average='weighted')
+        recall = recall_score(y, y_pred, average='weighted')
+        f1 = f1_score(y, y_pred, average='weighted')
+
+        # Save detailed classification report
+        class_report = classification_report(y, y_pred, output_dict=True)
+        class_report_df = pd.DataFrame(class_report).transpose()
+        class_report_df.to_csv(f"{output_path}_classification_report.csv")
+
+        # Create confusion matrix visualization
+        plt.figure(figsize=(10, 8))
+        cm = confusion_matrix(y, y_pred)
+        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+                    xticklabels=np.unique(y), yticklabels=np.unique(y))
+        plt.title('Confusion Matrix')
+        plt.ylabel('True Label')
+        plt.xlabel('Predicted Label')
+        plt.savefig(f"{output_path}_confusion_matrix.png", dpi=300, bbox_inches='tight')
+        plt.close()
+
+        # Feature importance visualization if available
+        if hasattr(model, 'feature_importances_'):
+            importance = model.feature_importances_
+            indices = np.argsort(importance)[::-1]
+
+            plt.figure(figsize=(12, 8))
+            plt.title('Feature Importance')
+            plt.bar(range(len(indices)), importance[indices], align='center')
+            plt.xticks(range(len(indices)), [feature_names[i] for i in indices], rotation=90)
+            plt.tight_layout()
+            plt.savefig(f"{output_path}_feature_importance.png", dpi=300, bbox_inches='tight')
+            plt.close()
+
+        # ROC curve for binary classification or one-vs-rest for multiclass
+        if y_prob is not None:
+            # Check if binary or multiclass
+            unique_classes = np.unique(y)
+            if len(unique_classes) == 2:
+                # Binary classification
+                fpr, tpr, _ = roc_curve(y, y_prob[:, 1])
+                roc_auc = roc_auc_score(y, y_prob[:, 1])
+
+                plt.figure(figsize=(8, 6))
+                plt.plot(fpr, tpr, label=f'ROC curve (AUC = {roc_auc:.3f})')
+                plt.plot([0, 1], [0, 1], 'k--')
+                plt.xlim([0.0, 1.0])
+                plt.ylim([0.0, 1.05])
+                plt.xlabel('False Positive Rate')
+                plt.ylabel('True Positive Rate')
+                plt.title('Receiver Operating Characteristic')
+                plt.legend(loc='lower right')
+                plt.savefig(f"{output_path}_roc_curve.png", dpi=300, bbox_inches='tight')
+                plt.close()
