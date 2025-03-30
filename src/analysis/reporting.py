@@ -286,3 +286,548 @@ class BrainAIReporting:
             return self._generate_png_longitudinal_report(
                 subject_id, processed_timepoints, subject_clinical, report_filename
             )
+
+        # Calculate volumes for each label
+        for label in unique_labels:
+            if label == 0:  # Skip background
+                continue
+
+            # Count voxels for this label
+            voxel_count = np.sum(segmentation == label)
+            volume_mm3 = voxel_count * voxel_volume
+            volume_ml = volume_mm3 / 1000  # Convert to mL
+
+            # Get name for this class
+            if label in tissue_names:
+                class_name = tissue_names[label]
+            else:
+                class_name = f"Class {label}"
+
+            # Store volume in dictionary
+            volumes[f"{class_name}_volume_mm3"] = volume_mm3
+            volumes[f"{class_name}_volume_ml"] = volume_ml
+
+            # Add to total brain volume
+            total_brain_volume += volume_mm3
+
+        # Add total brain volume
+        volumes["Total_Brain_Volume_mm3"] = total_brain_volume
+        volumes["Total_Brain_Volume_ml"] = total_brain_volume / 1000
+
+        return volumes
+
+    def _generate_pdf_subject_report(self, subject_id, original_image, segmentation_result,
+                                     volumes, clinical_data, anomaly_map, diagnosis, filename):
+        """
+        Generate a PDF report for an individual subject.
+
+        Args:
+            subject_id (str): Subject identifier
+            original_image (numpy.ndarray): Original MRI image
+            segmentation_result (numpy.ndarray): Segmentation mask
+            volumes (dict): Dictionary with volume measurements
+            clinical_data (dict): Subject's clinical data
+            anomaly_map (numpy.ndarray): Anomaly detection map
+            diagnosis (str): Clinical diagnosis
+            filename (str): Base filename for the report
+
+        Returns:
+            str: Path to the generated PDF file
+        """
+        # Create output path
+        output_path = self.output_dir / f"{filename}.pdf"
+
+        # Create PDF with multiple pages
+        with PdfPages(output_path) as pdf:
+            # Page 1: Overview and volumetric analysis
+            plt.figure(figsize=(11.7, 8.3))  # A4 size in inches
+
+            # Title
+            plt.suptitle(f"Brain MRI Analysis Report: Subject {subject_id}", fontsize=16)
+            plt.figtext(0.5, 0.92, f"Date: {self.report_time}", fontsize=10, ha="center")
+
+            # Define grid layout
+            gs = gridspec.GridSpec(3, 3, height_ratios=[1, 2, 1])
+
+            # Subject info section
+            ax_info = plt.subplot(gs[0, :])
+            info_text = f"Subject ID: {subject_id}\n"
+
+            if diagnosis:
+                info_text += f"Diagnosis: {diagnosis}\n"
+
+            if isinstance(clinical_data, dict) and clinical_data:
+                # Add selected clinical data (customize based on your data)
+                key_clinical = ['MMSE', 'CDR', 'GDSCALE', 'Age', 'Sex', 'Education']
+                for key in key_clinical:
+                    if key in clinical_data:
+                        info_text += f"{key}: {clinical_data[key]}\n"
+
+            ax_info.text(0.05, 0.5, info_text, transform=ax_info.transAxes, fontsize=10,
+                         verticalalignment='center', bbox=dict(boxstyle='round', alpha=0.1))
+            ax_info.set_title("Subject Information", fontweight='bold')
+            ax_info.axis('off')
+
+            # Brain slices with segmentation overlay
+            ax_slices = plt.subplot(gs[1, :2])
+
+            # Find midpoint in the z-axis
+            z_mid = original_image.shape[2] // 2
+
+            # Select 3 slices around the middle
+            slice_indices = [z_mid - 10, z_mid, z_mid + 10]
+            slice_indices = [max(0, min(idx, original_image.shape[2] - 1)) for idx in slice_indices]
+
+            # Create a composite image with the 3 slices
+            composite_width = original_image.shape[1] * 3
+            composite_height = original_image.shape[0]
+            composite_img = np.zeros((composite_height, composite_width))
+            composite_seg = np.zeros((composite_height, composite_width))
+
+            for i, z in enumerate(slice_indices):
+                start_col = i * original_image.shape[1]
+                end_col = (i + 1) * original_image.shape[1]
+                composite_img[:, start_col:end_col] = original_image[:, :, z]
+                composite_seg[:, start_col:end_col] = segmentation_result[:, :, z]
+
+            # Normalize the image for better visualization
+            composite_img = (composite_img - composite_img.min()) / (composite_img.max() - composite_img.min())
+
+            # Display the original image
+            ax_slices.imshow(composite_img, cmap='gray')
+
+            # Create custom colormap for segmentation
+            cmap = plt.cm.get_cmap('jet', len(np.unique(segmentation_result)))
+
+            # Overlay segmentation with transparency
+            mask = composite_seg > 0  # Only overlay non-zero values
+            overlay = np.ma.masked_where(~mask, composite_seg)
+            ax_slices.imshow(overlay, cmap=cmap, alpha=0.5)
+
+            ax_slices.set_title("Brain MRI with Segmentation Overlay", fontweight='bold')
+            ax_slices.axis('off')
+
+            # Volumetric analysis
+            ax_volumes = plt.subplot(gs[1, 2])
+
+            # Extract volume data for plotting
+            structures = []
+            vol_values = []
+
+            for key, value in volumes.items():
+                if "volume_ml" in key and "Total" not in key:
+                    structure = key.replace("_volume_ml", "")
+                    structures.append(structure)
+                    vol_values.append(value)
+
+            # Create horizontal bar chart
+            y_pos = np.arange(len(structures))
+            ax_volumes.barh(y_pos, vol_values, align='center')
+            ax_volumes.set_yticks(y_pos)
+            ax_volumes.set_yticklabels(structures)
+            ax_volumes.set_xlabel('Volume (mL)')
+            ax_volumes.set_title("Brain Structure Volumes", fontweight='bold')
+
+            # Add volume table
+            ax_vol_table = plt.subplot(gs[2, :2])
+            ax_vol_table.axis('off')
+
+            table_data = [["Brain Structure", "Volume (mL)", "% of Total Brain"]]
+            total_vol = volumes.get("Total_Brain_Volume_ml", 0)
+
+            for key, value in volumes.items():
+                if "volume_ml" in key and "Total" not in key:
+                    structure = key.replace("_volume_ml", "")
+                    percentage = (value / total_vol * 100) if total_vol > 0 else 0
+                    table_data.append([structure, f"{value:.2f}", f"{percentage:.2f}%"])
+
+            # Add total row
+            table_data.append(["Total Brain", f"{total_vol:.2f}", "100.00%"])
+
+            table = ax_vol_table.table(cellText=table_data, loc='center', cellLoc='center')
+            table.auto_set_font_size(False)
+            table.set_fontsize(9)
+            table.scale(1, 1.5)
+
+            for i in range(len(table_data)):
+                if i == 0 or i == len(table_data) - 1:
+                    for j in range(3):
+                        table[(i, j)].set_facecolor('#E6F3FF')
+
+            ax_vol_table.set_title("Volumetric Analysis", fontweight='bold')
+
+            # Anomaly visualization (if available)
+            ax_anomaly = plt.subplot(gs[2, 2])
+
+            if anomaly_map is not None:
+                # Display anomaly heatmap for the middle slice
+                z_mid = anomaly_map.shape[2] // 2
+                ax_anomaly.imshow(original_image[:, :, z_mid], cmap='gray')
+                anomaly_display = ax_anomaly.imshow(anomaly_map[:, :, z_mid], cmap='hot',
+                                                    alpha=0.7, vmin=0, vmax=1)
+                plt.colorbar(anomaly_display, ax=ax_anomaly, fraction=0.046, pad=0.04)
+                ax_anomaly.set_title("Anomaly Detection", fontweight='bold')
+            else:
+                ax_anomaly.text(0.5, 0.5, "Anomaly detection not available",
+                                ha='center', va='center', transform=ax_anomaly.transAxes)
+                ax_anomaly.set_title("Anomaly Detection", fontweight='bold')
+
+            ax_anomaly.axis('off')
+
+            # Add disclaimer at the bottom
+            if self.config.get('reporting', {}).get('include_disclaimer', True):
+                plt.figtext(0.5, 0.01, self.disclaimer, wrap=True,
+                            horizontalalignment='center', fontsize=8, style='italic')
+
+            plt.tight_layout(rect=[0, 0.03, 1, 0.9])
+            pdf.savefig()
+            plt.close()
+
+            # Page 2: Clinical Data and 3D Visualization (if available)
+            if clinical_data or anomaly_map is not None:
+                plt.figure(figsize=(11.7, 8.3))  # A4 size in inches
+
+                # Title
+                plt.suptitle(f"Brain MRI Analysis Report: Subject {subject_id} - Detailed Analysis",
+                             fontsize=16)
+
+                # Grid layout
+                gs = gridspec.GridSpec(2, 2)
+
+                # Clinical data section (if available)
+                ax_clinical = plt.subplot(gs[0, 0])
+
+                if clinical_data:
+                    # Create table from clinical data
+                    clinical_table = []
+
+                    # Header
+                    clinical_table.append(["Clinical Measure", "Value"])
+
+                    # Add relevant clinical data
+                    exclude_keys = ['subject_id', 'PTID', 'Image_Path', 'path']
+
+                    for key, value in clinical_data.items():
+                        # Skip uninteresting keys
+                        if key in exclude_keys or 'PATH' in key or 'ID' in key:
+                            continue
+
+                        # Format key for display
+                        display_key = key.replace('_', ' ').title()
+                        clinical_table.append([display_key, str(value)])
+
+                    table = ax_clinical.table(cellText=clinical_table, loc='center', cellLoc='center')
+                    table.auto_set_font_size(False)
+                    table.set_fontsize(9)
+                    table.scale(1, 1.5)
+
+                    for i in range(len(clinical_table)):
+                        if i == 0:
+                            for j in range(2):
+                                table[(i, j)].set_facecolor('#E6F3FF')
+
+                else:
+                    ax_clinical.text(0.5, 0.5, "No clinical data available",
+                                     ha='center', va='center', transform=ax_clinical.transAxes)
+
+                ax_clinical.set_title("Clinical Assessment Data", fontweight='bold')
+                ax_clinical.axis('off')
+
+                # Coronal and sagittal views
+                ax_coronal = plt.subplot(gs[0, 1])
+                y_mid = original_image.shape[1] // 2
+                coronal_slice = original_image[:, y_mid, :]
+                coronal_seg = segmentation_result[:, y_mid, :]
+
+                # Display the original image
+                ax_coronal.imshow(coronal_slice.T, cmap='gray', origin='lower')
+
+                # Overlay segmentation with transparency
+                mask = coronal_seg.T > 0
+                overlay = np.ma.masked_where(~mask, coronal_seg.T)
+                ax_coronal.imshow(overlay, cmap=plt.cm.get_cmap('jet', len(np.unique(segmentation_result))),
+                                  alpha=0.5, origin='lower')
+
+                ax_coronal.set_title("Coronal View", fontweight='bold')
+                ax_coronal.axis('off')
+
+                # Visualization of 3D rendering (placeholder - in practice would use plotly)
+                ax_render = plt.subplot(gs[1, :])
+                ax_render.text(0.5, 0.5, "3D Rendering would be displayed here\n"
+                                         "In a full implementation, a 3D surface rendering would be included using plotly or VTK.",
+                               ha='center', va='center', transform=ax_render.transAxes,
+                               bbox=dict(boxstyle='round', alpha=0.1))
+                ax_render.set_title("3D Volume Rendering", fontweight='bold')
+                ax_render.axis('off')
+
+                # Add institution info
+                plt.figtext(0.5, 0.02, f"Generated by {self.institution_name}",
+                            horizontalalignment='center', fontsize=10)
+
+                plt.tight_layout(rect=[0, 0.03, 1, 0.9])
+                pdf.savefig()
+                plt.close()
+
+        print(f"PDF report generated: {output_path}")
+        return str(output_path)
+
+    def _generate_html_subject_report(self, subject_id, original_image, segmentation_result,
+                                      volumes, clinical_data, anomaly_map, diagnosis, filename):
+        """
+        Generate an HTML report for an individual subject.
+
+        Args:
+            subject_id (str): Subject identifier
+            original_image (numpy.ndarray): Original MRI image
+            segmentation_result (numpy.ndarray): Segmentation mask
+            volumes (dict): Dictionary with volume measurements
+            clinical_data (dict): Subject's clinical data
+            anomaly_map (numpy.ndarray): Anomaly detection map
+            diagnosis (str): Clinical diagnosis
+            filename (str): Base filename for the report
+
+        Returns:
+            str: Path to the generated HTML file
+        """
+        # Create output path
+        output_path = self.output_dir / f"{filename}.html"
+
+        # Create folder for images if it doesn't exist
+        images_dir = self.output_dir / "images"
+        images_dir.mkdir(exist_ok=True)
+
+        # Generate images for the HTML report
+        image_paths = {}
+
+        # Generate slices visualization
+        plt.figure(figsize=(10, 4))
+        z_indices = [original_image.shape[2] // 4, original_image.shape[2] // 2, 3 * original_image.shape[2] // 4]
+
+        for i, z in enumerate(z_indices):
+            plt.subplot(1, 3, i + 1)
+            plt.imshow(original_image[:, :, z], cmap='gray')
+            plt.imshow(segmentation_result[:, :, z], cmap='jet', alpha=0.5)
+            plt.title(f"Slice {z}")
+            plt.axis('off')
+
+        slices_path = images_dir / f"{filename}_slices.png"
+        plt.tight_layout()
+        plt.savefig(slices_path, dpi=150)
+        plt.close()
+        image_paths['slices'] = f"images/{slices_path.name}"
+
+        # Generate volumes bar chart
+        plt.figure(figsize=(8, 6))
+        structures = []
+        vol_values = []
+
+        for key, value in volumes.items():
+            if "volume_ml" in key and "Total" not in key:
+                structure = key.replace("_volume_ml", "")
+                structures.append(structure)
+                vol_values.append(value)
+
+        y_pos = np.arange(len(structures))
+        plt.barh(y_pos, vol_values, align='center')
+        plt.yticks(y_pos, structures)
+        plt.xlabel('Volume (mL)')
+        plt.title("Brain Structure Volumes")
+
+        volumes_path = images_dir / f"{filename}_volumes.png"
+        plt.tight_layout()
+        plt.savefig(volumes_path, dpi=150)
+        plt.close()
+        image_paths['volumes'] = f"images/{volumes_path.name}"
+
+        # Generate anomaly visualization if available
+        if anomaly_map is not None:
+            plt.figure(figsize=(6, 6))
+            z_mid = anomaly_map.shape[2] // 2
+            plt.imshow(original_image[:, :, z_mid], cmap='gray')
+            plt.imshow(anomaly_map[:, :, z_mid], cmap='hot', alpha=0.7, vmin=0, vmax=1)
+            plt.colorbar(label='Anomaly Score')
+            plt.title("Anomaly Detection")
+            plt.axis('off')
+
+            anomaly_path = images_dir / f"{filename}_anomaly.png"
+            plt.tight_layout()
+            plt.savefig(anomaly_path, dpi=150)
+            plt.close()
+            image_paths['anomaly'] = f"images/{anomaly_path.name}"
+
+        # Create HTML template
+        html_template = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Brain MRI Analysis Report: {{ subject_id }}</title>
+            <style>
+                body { font-family: Arial, sans-serif; line-height: 1.6; margin: 0; padding: 20px; color: #333; }
+                h1, h2, h3 { color: #0066cc; }
+                .container { max-width: 1200px; margin: 0 auto; }
+                .header { background-color: #f5f5f5; padding: 20px; margin-bottom: 20px; border-bottom: 1px solid #ddd; }
+                .section { margin-bottom: 30px; padding: 20px; background-color: white; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+                table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+                table, th, td { border: 1px solid #ddd; }
+                th, td { padding: 12px; text-align: left; }
+                th { background-color: #f2f2f2; }
+                img { max-width: 100%; height: auto; }
+                .img-container { text-align: center; margin-bottom: 20px; }
+                .footer { text-align: center; margin-top: 30px; font-size: 0.8em; color: #777; border-top: 1px solid #ddd; padding-top: 20px; }
+                .disclaimer { font-style: italic; background-color: #f9f9f9; padding: 10px; border-left: 3px solid #ccc; margin-top: 30px; }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>Brain MRI Analysis Report</h1>
+                    <p><strong>Subject ID:</strong> {{ subject_id }}</p>
+                    <p><strong>Date:</strong> {{ report_date }}</p>
+                    {% if diagnosis %}
+                    <p><strong>Diagnosis:</strong> {{ diagnosis }}</p>
+                    {% endif %}
+                </div>
+
+                <div class="section">
+                    <h2>Brain MRI Visualization</h2>
+                    <div class="img-container">
+                        <img src="{{ images.slices }}" alt="Brain MRI Slices with Segmentation">
+                        <p>Brain MRI with segmentation overlay (axial slices)</p>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <h2>Volumetric Analysis</h2>
+                    <div class="img-container">
+                        <img src="{{ images.volumes }}" alt="Brain Structure Volumes">
+                        <p>Volumetric measurements of brain structures</p>
+                    </div>
+
+                    <h3>Volume Measurements</h3>
+                    <table>
+                        <tr>
+                            <th>Brain Structure</th>
+                            <th>Volume (ml)</th>
+                            <th>Volume (mm³)</th>
+                            <th>% of Total Brain</th>
+                        </tr>
+                        {% for structure, values in volumes_table %}
+                        <tr>
+                            <td>{{ structure }}</td>
+                            <td>{{ values.ml }}</td>
+                            <td>{{ values.mm3 }}</td>
+                            <td>{{ values.percentage }}</td>
+                        </tr>
+                        {% endfor %}
+                    </table>
+                </div>
+
+                {% if clinical_data %}
+                <div class="section">
+                    <h2>Clinical Assessment Data</h2>
+                    <table>
+                        <tr>
+                            <th>Measure</th>
+                            <th>Value</th>
+                        </tr>
+                        {% for key, value in clinical_table %}
+                        <tr>
+                            <td>{{ key }}</td>
+                            <td>{{ value }}</td>
+                        </tr>
+                        {% endfor %}
+                    </table>
+                </div>
+                {% endif %}
+
+                {% if images.anomaly %}
+                <div class="section">
+                    <h2>Anomaly Detection</h2>
+                    <div class="img-container">
+                        <img src="{{ images.anomaly }}" alt="Anomaly Detection">
+                        <p>Heatmap showing detected anomalies in brain tissue</p>
+                    </div>
+                </div>
+                {% endif %}
+
+                <div class="disclaimer">
+                    {{ disclaimer }}
+                </div>
+
+                <div class="footer">
+                    <p>Generated by {{ institution }} | {{ report_date }}</p>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+
+        # Prepare template data
+        template_data = {
+            'subject_id': subject_id,
+            'report_date': self.report_time,
+            'diagnosis': diagnosis if diagnosis else None,
+            'images': image_paths,
+            'disclaimer': self.disclaimer,
+            'institution': self.institution_name
+        }
+
+        # Prepare volumes table data
+        volumes_table = []
+        total_vol_mm3 = volumes.get("Total_Brain_Volume_mm3", 0)
+
+        for key in volumes:
+            if "volume_ml" in key and "Total" not in key:
+                structure = key.replace("_volume_ml", "")
+                vol_ml = volumes[key]
+                vol_mm3 = volumes.get(f"{structure}_volume_mm3", 0)
+                percentage = (vol_mm3 / total_vol_mm3 * 100) if total_vol_mm3 > 0 else 0
+
+                volumes_table.append((
+                    structure,
+                    {
+                        'ml': f"{vol_ml:.2f}",
+                        'mm3': f"{vol_mm3:.2f}",
+                        'percentage': f"{percentage:.2f}%"
+                    }
+                ))
+
+        # Add total row
+        volumes_table.append((
+            "Total Brain",
+            {
+                'ml': f"{volumes.get('Total_Brain_Volume_ml', 0):.2f}",
+                'mm3': f"{total_vol_mm3:.2f}",
+                'percentage': "100.00%"
+            }
+        ))
+
+        template_data['volumes_table'] = volumes_table
+
+        # Prepare clinical data table
+        clinical_table = []
+
+        if clinical_data:
+            exclude_keys = ['subject_id', 'PTID', 'Image_Path', 'path']
+
+            for key, value in clinical_data.items():
+                # Skip uninteresting keys
+                if key in exclude_keys or 'PATH' in key or 'ID' in key:
+                    continue
+
+                # Format key for display
+                display_key = key.replace('_', ' ').title()
+                clinical_table.append((display_key, value))
+
+        template_data['clinical_table'] = clinical_table
+
+        # Render template
+        template = jinja2.Template(html_template)
+        html_content = template.render(**template_data)
+
+        # Write HTML file
+        with open(output_path, 'w') as f:
+            f.write(html_content)
+
+        print(f"HTML report generated: {output_path}")
+        return str(output_path)
