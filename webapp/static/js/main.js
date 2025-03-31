@@ -1,12 +1,3 @@
-/**
- * Brain AI - Main JavaScript
- *
- * This file contains the core JavaScript functionality for the Brain AI web application.
- *
- * Version: 1.0.0
- * Last Updated: 2025-03-31
- */
-
 // Wait for the document to be fully loaded
 document.addEventListener('DOMContentLoaded', function() {
     console.log('Brain AI Web Application Initialized');
@@ -1754,4 +1745,548 @@ function calculateCorrelationMatrix(data, columns) {
     }
 
     return matrix;
+}
+function generateHeatmapData(matrix, labels) {
+    // Generates data for the heatmap visualization
+    const data = [];
+
+    // Create data array for heatmap plotting
+    for (let i = 0; i < matrix.length; i++) {
+        for (let j = 0; j < matrix[i].length; j++) {
+            data.push({
+                x: labels[j],
+                y: labels[i],
+                z: matrix[i][j],
+                text: `${labels[i]}-${labels[j]}: ${matrix[i][j].toFixed(2)}`,
+                hoverinfo: 'text'
+            });
+        }
+    }
+
+    return data;
+}
+
+function createHeatmap(elementId, data, labels, title) {
+    // Create heatmap visualization using Plotly
+    const heatmapData = [{
+        x: labels,
+        y: labels,
+        z: data,
+        type: 'heatmap',
+        colorscale: 'Viridis',
+        hoverongaps: false,
+        showscale: true,
+        colorbar: {
+            title: 'Correlation',
+            thickness: 20,
+            titleside: 'right',
+            tickmode: 'array',
+            tickvals: [-1, -0.5, 0, 0.5, 1],
+            ticktext: ['-1', '-0.5', '0', '0.5', '1']
+        }
+    }];
+
+    const layout = {
+        title: title || 'Correlation Heatmap',
+        margin: {
+            l: 120,
+            r: 50,
+            b: 120,
+            t: 100,
+            pad: 4
+        },
+        xaxis: {
+            title: '',
+            automargin: true
+        },
+        yaxis: {
+            title: '',
+            automargin: true
+        }
+    };
+
+    const config = {
+        responsive: true,
+        displayModeBar: true,
+        modeBarButtonsToRemove: ['lasso2d', 'select2d'],
+        displaylogo: false
+    };
+
+    Plotly.newPlot(elementId, heatmapData, layout, config);
+}
+
+function createBarChart(elementId, data, labels, title, xLabel, yLabel) {
+    // Create bar chart visualization using Plotly
+    const trace = {
+        x: labels,
+        y: data,
+        type: 'bar',
+        marker: {
+            color: 'rgba(50, 98, 235, 0.7)',
+            line: {
+                color: 'rgba(50, 98, 235, 1.0)',
+                width: 1
+            }
+        }
+    };
+
+    const layout = {
+        title: title || 'Bar Chart',
+        xaxis: {
+            title: xLabel || '',
+            tickangle: -45,
+            automargin: true
+        },
+        yaxis: {
+            title: yLabel || '',
+            automargin: true
+        },
+        margin: {
+            b: 150
+        }
+    };
+
+    const config = {
+        responsive: true,
+        displayModeBar: true,
+        modeBarButtonsToRemove: ['lasso2d', 'select2d'],
+        displaylogo: false
+    };
+
+    Plotly.newPlot(elementId, [trace], layout, config);
+}
+
+function createBoxPlot(elementId, data, groups, title, yLabel) {
+    // Create box plot visualization using Plotly
+    const traces = [];
+
+    for (let i = 0; i < data.length; i++) {
+        traces.push({
+            y: data[i],
+            type: 'box',
+            name: groups[i],
+            boxpoints: 'outliers',
+            jitter: 0.3,
+            pointpos: 0,
+            marker: {
+                color: getBoxPlotColor(i)
+            }
+        });
+    }
+
+    const layout = {
+        title: title || 'Box Plot',
+        yaxis: {
+            title: yLabel || '',
+            zeroline: false
+        },
+        boxmode: 'group'
+    };
+
+    const config = {
+        responsive: true,
+        displayModeBar: true,
+        modeBarButtonsToRemove: ['lasso2d', 'select2d'],
+        displaylogo: false
+    };
+
+    Plotly.newPlot(elementId, traces, layout, config);
+}
+
+function getBoxPlotColor(index) {
+    // Color palette for box plots
+    const colors = [
+        'rgba(93, 164, 214, 0.7)', // blue
+        'rgba(255, 144, 14, 0.7)',  // orange
+        'rgba(44, 160, 101, 0.7)',  // green
+        'rgba(255, 65, 54, 0.7)',   // red
+        'rgba(207, 114, 255, 0.7)', // purple
+        'rgba(127, 96, 0, 0.7)',    // brown
+        'rgba(255, 140, 184, 0.7)', // pink
+        'rgba(79, 90, 117, 0.7)'    // dark blue
+    ];
+
+    return colors[index % colors.length];
+}
+
+function createScatterPlot(elementId, xData, yData, labels, title, xLabel, yLabel, groups) {
+    // Create scatter plot visualization using Plotly
+    const traces = [];
+
+    if (groups) {
+        // Create a trace for each group
+        const uniqueGroups = [...new Set(groups)];
+
+        uniqueGroups.forEach((group, i) => {
+            const indices = groups.map((g, idx) => g === group ? idx : -1).filter(idx => idx !== -1);
+
+            traces.push({
+                x: indices.map(idx => xData[idx]),
+                y: indices.map(idx => yData[idx]),
+                text: indices.map(idx => labels ? labels[idx] : ''),
+                mode: 'markers',
+                type: 'scatter',
+                name: group,
+                marker: {
+                    size: 10,
+                    color: getBoxPlotColor(i),
+                    line: {
+                        width: 1,
+                        color: 'white'
+                    }
+                }
+            });
+        });
+    } else {
+        // Single trace for all data
+        traces.push({
+            x: xData,
+            y: yData,
+            text: labels,
+            mode: 'markers',
+            type: 'scatter',
+            marker: {
+                size: 10,
+                color: 'rgba(93, 164, 214, 0.7)',
+                line: {
+                    width: 1,
+                    color: 'white'
+                }
+            }
+        });
+    }
+
+    const layout = {
+        title: title || 'Scatter Plot',
+        xaxis: {
+            title: xLabel || '',
+            zeroline: true
+        },
+        yaxis: {
+            title: yLabel || '',
+            zeroline: true
+        },
+        hovermode: 'closest'
+    };
+
+    const config = {
+        responsive: true,
+        displayModeBar: true,
+        modeBarButtonsToRemove: ['lasso2d', 'select2d'],
+        displaylogo: false
+    };
+
+    Plotly.newPlot(elementId, traces, layout, config);
+}
+
+function createViolinPlot(elementId, data, groups, title, yLabel) {
+    // Create violin plot visualization using Plotly
+    const traces = [];
+
+    for (let i = 0; i < data.length; i++) {
+        traces.push({
+            y: data[i],
+            type: 'violin',
+            name: groups[i],
+            box: {
+                visible: true
+            },
+            meanline: {
+                visible: true
+            },
+            marker: {
+                color: getBoxPlotColor(i)
+            }
+        });
+    }
+
+    const layout = {
+        title: title || 'Violin Plot',
+        yaxis: {
+            title: yLabel || '',
+            zeroline: false
+        },
+        violinmode: 'group'
+    };
+
+    const config = {
+        responsive: true,
+        displayModeBar: true,
+        modeBarButtonsToRemove: ['lasso2d', 'select2d'],
+        displaylogo: false
+    };
+
+    Plotly.newPlot(elementId, traces, layout, config);
+}
+
+function loadDemographicOverview() {
+    // Load demographic overview data from the API
+    $.ajax({
+        url: '/api/demographic_overview',
+        method: 'GET',
+        success: function(response) {
+            if (response.error) {
+                console.error('Error loading demographic data:', response.error);
+                $('#demographicOverview').html('<div class="alert alert-danger">Error loading demographic data</div>');
+                return;
+            }
+
+            displayDemographicOverview(response);
+        },
+        error: function(error) {
+            console.error('Error fetching demographic data:', error);
+            $('#demographicOverview').html('<div class="alert alert-danger">Error loading demographic data</div>');
+        }
+    });
+}
+
+function displayDemographicOverview(data) {
+    // Display demographic overview data
+    $('#demographicOverview').empty();
+
+    const totalSubjects = data.total_subjects;
+
+    // Create container for overview
+    const container = $('<div class="row"></div>');
+
+    // Total subjects card
+    const totalCard = $(`
+        <div class="col-md-4 mb-4">
+            <div class="card bg-primary text-white h-100">
+                <div class="card-body text-center">
+                    <h5 class="card-title">Total Subjects</h5>
+                    <p class="display-4">${totalSubjects}</p>
+                </div>
+            </div>
+        </div>
+    `);
+
+    // Age distribution card
+    let ageCard;
+    if (data.age_stats) {
+        ageCard = $(`
+            <div class="col-md-4 mb-4">
+                <div class="card h-100">
+                    <div class="card-body">
+                        <h5 class="card-title">Age Distribution</h5>
+                        <div class="text-center mb-3">
+                            <p>Mean: ${data.age_stats.mean.toFixed(1)} years</p>
+                            <p>Range: ${data.age_stats.min.toFixed(0)} - ${data.age_stats.max.toFixed(0)} years</p>
+                        </div>
+                        <div id="ageHistogram" style="height: 200px;"></div>
+                    </div>
+                </div>
+            </div>
+        `);
+    } else {
+        ageCard = $(`
+            <div class="col-md-4 mb-4">
+                <div class="card h-100">
+                    <div class="card-body">
+                        <h5 class="card-title">Age Distribution</h5>
+                        <p class="text-muted">No age data available</p>
+                    </div>
+                </div>
+            </div>
+        `);
+    }
+
+    // Gender distribution card
+    let genderCard;
+    if (data.gender_stats) {
+        genderCard = $(`
+            <div class="col-md-4 mb-4">
+                <div class="card h-100">
+                    <div class="card-body">
+                        <h5 class="card-title">Gender Distribution</h5>
+                        <div id="genderPieChart" style="height: 200px;"></div>
+                    </div>
+                </div>
+            </div>
+        `);
+    } else {
+        genderCard = $(`
+            <div class="col-md-4 mb-4">
+                <div class="card h-100">
+                    <div class="card-body">
+                        <h5 class="card-title">Gender Distribution</h5>
+                        <p class="text-muted">No gender data available</p>
+                    </div>
+                </div>
+            </div>
+        `);
+    }
+
+    // Add cards to container
+    container.append(totalCard);
+    container.append(ageCard);
+    container.append(genderCard);
+
+    // Add container to overview
+    $('#demographicOverview').append(container);
+
+    // Create age histogram if data available
+    if (data.age_stats && data.age_stats.histogram) {
+        const histogramData = [{
+            x: Array.from({length: data.age_stats.histogram.length}, (_, i) => {
+                const binSize = (data.age_stats.max - data.age_stats.min) / 10;
+                return (data.age_stats.min + i * binSize + binSize/2).toFixed(0);
+            }),
+            y: data.age_stats.histogram,
+            type: 'bar',
+            marker: {
+                color: 'rgba(50, 98, 235, 0.7)',
+            }
+        }];
+
+        const layout = {
+            margin: {l: 40, r: 20, t: 20, b: 40},
+            xaxis: {title: 'Age (years)'},
+            yaxis: {title: 'Count'},
+            bargap: 0.05
+        };
+
+        Plotly.newPlot('ageHistogram', histogramData, layout, {responsive: true, displayModeBar: false});
+    }
+
+    // Create gender pie chart if data available
+    if (data.gender_stats) {
+        const genderLabels = Object.keys(data.gender_stats.counts);
+        const genderValues = Object.values(data.gender_stats.counts);
+
+        const pieData = [{
+            labels: genderLabels,
+            values: genderValues,
+            type: 'pie',
+            marker: {
+                colors: ['rgba(93, 164, 214, 0.7)', 'rgba(255, 144, 14, 0.7)']
+            },
+            textinfo: 'label+percent',
+            insidetextorientation: 'radial'
+        }];
+
+        const layout = {
+            margin: {l: 20, r: 20, t: 20, b: 20},
+            showlegend: false
+        };
+
+        Plotly.newPlot('genderPieChart', pieData, layout, {responsive: true, displayModeBar: false});
+    }
+}
+
+function initAnalysisForm() {
+    // Initialize the analysis form with available data
+    $.ajax({
+        url: '/health',
+        method: 'GET',
+        success: function(response) {
+            if (!response.clinical_data) {
+                $('#analysisForm').html('<div class="alert alert-warning">Clinical data not available</div>');
+                return;
+            }
+
+            // Populate available clinical data checkboxes
+            const clinicalDataContainer = $('#clinicalDataOptions');
+            clinicalDataContainer.empty();
+
+            Object.keys(response.clinical_data).forEach(key => {
+                if (response.clinical_data[key]) {
+                    const checkbox = $(`
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" value="${key}" id="check_${key}">
+                            <label class="form-check-label" for="check_${key}">
+                                ${key}
+                            </label>
+                        </div>
+                    `);
+                    clinicalDataContainer.append(checkbox);
+                }
+            });
+        },
+        error: function(error) {
+            console.error('Error checking available data:', error);
+            $('#analysisForm').html('<div class="alert alert-danger">Error checking available data</div>');
+        }
+    });
+
+    // Set up form submission
+    $('#runAnalysisBtn').click(function() {
+        performAnalysis();
+    });
+}
+
+function performAnalysis() {
+    // Get selected analysis options
+    const analysisType = $('#analysisType').val();
+
+    // Get selected clinical data sources
+    const clinicalData = [];
+    $('#clinicalDataOptions input:checked').each(function() {
+        clinicalData.push($(this).val());
+    });
+
+    if (clinicalData.length === 0) {
+        alert('Please select at least one clinical data source');
+        return;
+    }
+
+    // Get groups if applicable
+    const groups = $('#comparisonGroups').val().split(',').map(g => g.trim()).filter(g => g);
+
+    // Show loading spinner
+    $('#analysisResults').html(`
+        <div class="text-center my-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p>Performing analysis...</p>
+        </div>
+    `);
+
+    // Call API to perform analysis
+    $.ajax({
+        url: '/api/analysis',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({
+            analysis_type: analysisType,
+            clinical_data: clinicalData,
+            groups: groups
+        }),
+        success: function(response) {
+            if (response.error) {
+                $('#analysisResults').html(`<div class="alert alert-danger">${response.error}</div>`);
+                return;
+            }
+
+            displayAnalysisResults(response.results, analysisType);
+        },
+        error: function(error) {
+            console.error('Error performing analysis:', error);
+            $('#analysisResults').html('<div class="alert alert-danger">Error performing analysis</div>');
+        }
+    });
+}
+
+function displayAnalysisResults(results, analysisType) {
+    // Display the analysis results
+    const container = $('#analysisResults');
+    container.empty();
+
+    // Add heading
+    container.append(`<h3 class="mb-4">Analysis Results</h3>`);
+
+    if (analysisType === 'group_comparison') {
+        // Display group comparison results
+        displayGroupComparison(container, results);
+    } else if (analysisType === 'correlation') {
+        // Display correlation results
+        displayCorrelationAnalysis(container, results);
+    } else if (analysisType === 'longitudinal') {
+        // Display longitudinal analysis results
+        displayLongitudinalAnalysis(container, results);
+    } else if (analysisType === 'classification') {
+        // Display classification results
+        displayClassificationResults(container, results);
+    }
 }
