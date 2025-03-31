@@ -667,6 +667,553 @@ function createStatisticsTable(statistics) {
 /**
  * Create a table for correlation matrix
  */
-function createCorrelationMatrixTable(correlationMatrix) {
+function createCorrelationMatrix(data, labels, containerId) {
+    // Clear the container
+    const container = document.getElementById(containerId);
+    container.innerHTML = '';
+
+    // Create the table
     const table = document.createElement('table');
-    table.className = 'table table-sm
+    table.className = 'correlation-matrix table table-bordered table-sm';
+
+    // Create header row with labels
+    const thead = document.createElement('thead');
+    const headerRow = document.createElement('tr');
+
+    // Empty cell for top-left corner
+    headerRow.appendChild(document.createElement('th'));
+
+    // Add variable names as column headers
+    labels.forEach(label => {
+        const th = document.createElement('th');
+        th.textContent = label;
+        th.scope = 'col';
+        headerRow.appendChild(th);
+    });
+
+    thead.appendChild(headerRow);
+    table.appendChild(thead);
+
+    // Create table body with correlation values
+    const tbody = document.createElement('tbody');
+
+    data.forEach((row, rowIndex) => {
+        const tr = document.createElement('tr');
+
+        // Add variable name as row header
+        const th = document.createElement('th');
+        th.textContent = labels[rowIndex];
+        th.scope = 'row';
+        tr.appendChild(th);
+
+        // Add correlation values
+        row.forEach((value, colIndex) => {
+            const td = document.createElement('td');
+
+            // Format the value
+            const formattedValue = value.toFixed(2);
+            td.textContent = formattedValue;
+
+            // Color coding based on correlation value
+            if (rowIndex !== colIndex) { // Skip diagonal (self-correlation)
+                const absValue = Math.abs(value);
+                let bgColor;
+
+                if (value > 0) {
+                    // Positive correlation (blue scale)
+                    const intensity = Math.min(absValue * 100, 100);
+                    bgColor = `rgba(0, 123, 255, ${intensity/100})`;
+                } else {
+                    // Negative correlation (red scale)
+                    const intensity = Math.min(absValue * 100, 100);
+                    bgColor = `rgba(220, 53, 69, ${intensity/100})`;
+                }
+
+                td.style.backgroundColor = bgColor;
+
+                // Set text color based on background intensity for readability
+                if (absValue > 0.5) {
+                    td.style.color = 'white';
+                }
+            } else {
+                // Diagonal elements (self-correlation = 1.0)
+                td.style.backgroundColor = '#f8f9fa';
+            }
+
+            tr.appendChild(td);
+        });
+
+        tbody.appendChild(tr);
+    });
+
+    table.appendChild(tbody);
+    container.appendChild(table);
+
+    // Add a legend for the correlation matrix
+    const legend = document.createElement('div');
+    legend.className = 'correlation-legend mt-2 d-flex justify-content-center';
+
+    const legendItems = [
+        { color: 'rgba(220, 53, 69, 1)', label: 'Perfect negative (-1.0)' },
+        { color: 'rgba(220, 53, 69, 0.5)', label: 'Moderate negative (-0.5)' },
+        { color: '#f8f9fa', label: 'No correlation (0.0)' },
+        { color: 'rgba(0, 123, 255, 0.5)', label: 'Moderate positive (0.5)' },
+        { color: 'rgba(0, 123, 255, 1)', label: 'Perfect positive (1.0)' }
+    ];
+
+    legendItems.forEach(item => {
+        const legendItem = document.createElement('div');
+        legendItem.className = 'mx-2 d-flex align-items-center';
+
+        const colorBox = document.createElement('div');
+        colorBox.className = 'correlation-color-box';
+        colorBox.style.width = '20px';
+        colorBox.style.height = '20px';
+        colorBox.style.backgroundColor = item.color;
+        colorBox.style.display = 'inline-block';
+        colorBox.style.marginRight = '5px';
+        colorBox.style.border = '1px solid #dee2e6';
+
+        const label = document.createElement('span');
+        label.textContent = item.label;
+        label.className = 'small';
+
+        legendItem.appendChild(colorBox);
+        legendItem.appendChild(label);
+        legend.appendChild(legendItem);
+    });
+
+    container.appendChild(legend);
+}
+
+/**
+ * Create a heatmap visualization for brain region volumes
+ * @param {Object} volumeData - The volume data with region names as keys and volumes as values
+ * @param {string} containerId - The ID of the container element
+ */
+function createVolumeHeatmap(volumeData, containerId) {
+    const container = document.getElementById(containerId);
+    container.innerHTML = '';
+
+    // Extract regions and volumes
+    const regions = Object.keys(volumeData);
+    const volumes = Object.values(volumeData);
+
+    // Find the maximum volume for scaling
+    const maxVolume = Math.max(...volumes);
+
+    // Create the heatmap container
+    const heatmapContainer = document.createElement('div');
+    heatmapContainer.className = 'volume-heatmap d-flex flex-wrap justify-content-center';
+
+    // Create heatmap cells
+    regions.forEach((region, index) => {
+        const cell = document.createElement('div');
+        cell.className = 'volume-cell m-1 p-2 text-center';
+
+        // Calculate relative size and color intensity based on volume
+        const relativeSize = 50 + (volumes[index] / maxVolume) * 100; // 50px to 150px
+        const intensity = 0.3 + (volumes[index] / maxVolume) * 0.7; // 0.3 to 1.0 opacity
+
+        cell.style.width = `${relativeSize}px`;
+        cell.style.height = `${relativeSize}px`;
+        cell.style.backgroundColor = `rgba(0, 123, 255, ${intensity})`;
+        cell.style.color = intensity > 0.6 ? 'white' : 'black';
+        cell.style.display = 'flex';
+        cell.style.flexDirection = 'column';
+        cell.style.justifyContent = 'center';
+        cell.style.borderRadius = '4px';
+
+        // Region name and volume
+        const regionName = document.createElement('div');
+        regionName.textContent = region;
+        regionName.className = 'small font-weight-bold';
+
+        const volumeText = document.createElement('div');
+        volumeText.textContent = `${Math.round(volumes[index])} mm³`;
+        volumeText.className = 'smaller';
+
+        cell.appendChild(regionName);
+        cell.appendChild(volumeText);
+        cell.title = `${region}: ${Math.round(volumes[index])} mm³`;
+
+        heatmapContainer.appendChild(cell);
+    });
+
+    container.appendChild(heatmapContainer);
+}
+
+/**
+ * Create a grouped bar chart for comparison between groups
+ * @param {Object} data - The data object with groups and values
+ * @param {string} containerId - The ID of the container element
+ * @param {string} title - Chart title
+ */
+function createGroupedBarChart(data, containerId, title) {
+    const container = document.getElementById(containerId);
+
+    // Create canvas for chart
+    const canvas = document.createElement('canvas');
+    canvas.id = `chart-${containerId}`;
+    container.innerHTML = '';
+    container.appendChild(canvas);
+
+    // Prepare data for Chart.js
+    const labels = Object.keys(data[Object.keys(data)[0]]);
+    const datasets = [];
+    const colorPalette = [
+        'rgba(0, 123, 255, 0.7)',   // blue
+        'rgba(220, 53, 69, 0.7)',    // red
+        'rgba(40, 167, 69, 0.7)',    // green
+        'rgba(255, 193, 7, 0.7)',    // yellow
+        'rgba(111, 66, 193, 0.7)',   // purple
+        'rgba(23, 162, 184, 0.7)',   // cyan
+    ];
+
+    // Create datasets for each group
+    Object.keys(data).forEach((group, index) => {
+        datasets.push({
+            label: group,
+            data: Object.values(data[group]),
+            backgroundColor: colorPalette[index % colorPalette.length],
+            borderColor: colorPalette[index % colorPalette.length].replace('0.7', '1'),
+            borderWidth: 1
+        });
+    });
+
+    // Create chart
+    new Chart(canvas, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: datasets
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                title: {
+                    display: true,
+                    text: title,
+                    font: {
+                        size: 16
+                    }
+                },
+                legend: {
+                    position: 'top',
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    title: {
+                        display: true,
+                        text: 'Value'
+                    }
+                },
+                x: {
+                    title: {
+                        display: true,
+                        text: 'Metric'
+                    }
+                }
+            }
+        }
+    });
+}
+
+/**
+ * Create a scatter plot for two variables
+ * @param {Array} data - Array of data points with x and y values
+ * @param {string} xLabel - Label for x-axis
+ * @param {string} yLabel - Label for y-axis
+ * @param {string} containerId - The ID of the container element
+ * @param {Array} groupLabels - Optional array of group labels for coloring points
+ */
+function createScatterPlot(data, xLabel, yLabel, containerId, groupLabels = null) {
+    const container = document.getElementById(containerId);
+
+    // Create canvas for chart
+    const canvas = document.createElement('canvas');
+    canvas.id = `scatter-${containerId}`;
+    container.innerHTML = '';
+    container.appendChild(canvas);
+
+    // Extract x and y values
+    const xValues = data.map(point => point.x);
+    const yValues = data.map(point => point.y);
+
+    // Prepare datasets
+    let datasets;
+
+    if (groupLabels) {
+        // Group data points by label
+        const groupedData = {};
+        data.forEach((point, index) => {
+            const label = groupLabels[index];
+            if (!groupedData[label]) {
+                groupedData[label] = [];
+            }
+            groupedData[label].push(point);
+        });
+
+        // Color palette for groups
+        const colorPalette = [
+            'rgba(0, 123, 255, 0.7)',   // blue
+            'rgba(220, 53, 69, 0.7)',   // red
+            'rgba(40, 167, 69, 0.7)',   // green
+            'rgba(255, 193, 7, 0.7)',   // yellow
+            'rgba(111, 66, 193, 0.7)',  // purple
+        ];
+
+        // Create a dataset for each group
+        datasets = Object.keys(groupedData).map((label, index) => {
+            const groupData = groupedData[label];
+            return {
+                label: label,
+                data: groupData,
+                backgroundColor: colorPalette[index % colorPalette.length],
+                borderColor: colorPalette[index % colorPalette.length].replace('0.7', '1'),
+                borderWidth: 1,
+                pointRadius: 6,
+                pointHoverRadius: 8
+            };
+        });
+    } else {
+        // Single dataset for all points
+        datasets = [{
+            data: data,
+            backgroundColor: 'rgba(0, 123, 255, 0.7)',
+            borderColor: 'rgba(0, 123, 255, 1)',
+            borderWidth: 1,
+            pointRadius: 6,
+            pointHoverRadius: 8
+        }];
+    }
+
+    // Calculate regression line if no groups
+    let regressionLine = null;
+    if (!groupLabels) {
+        regressionLine = calculateRegressionLine(xValues, yValues);
+    }
+
+    // Create the chart
+    const chart = new Chart(canvas, {
+        type: 'scatter',
+        data: {
+            datasets: datasets
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                title: {
+                    display: true,
+                    text: `${yLabel} vs ${xLabel}`,
+                    font: {
+                        size: 16
+                    }
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            const point = context.raw;
+                            return `${xLabel}: ${point.x.toFixed(2)}, ${yLabel}: ${point.y.toFixed(2)}`;
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    title: {
+                        display: true,
+                        text: xLabel
+                    }
+                },
+                y: {
+                    title: {
+                        display: true,
+                        text: yLabel
+                    }
+                }
+            }
+        }
+    });
+
+    // Add regression line if calculated
+    if (regressionLine) {
+        const minX = Math.min(...xValues);
+        const maxX = Math.max(...xValues);
+
+        const lineStart = { x: minX, y: regressionLine.slope * minX + regressionLine.intercept };
+        const lineEnd = { x: maxX, y: regressionLine.slope * maxX + regressionLine.intercept };
+
+        chart.data.datasets.push({
+            type: 'line',
+            label: 'Regression Line',
+            data: [lineStart, lineEnd],
+            fill: false,
+            borderColor: 'rgba(255, 99, 132, 1)',
+            borderWidth: 2,
+            pointRadius: 0,
+            pointHoverRadius: 0
+        });
+
+        // Add R² value
+        const rSquared = regressionLine.r2;
+        const annotation = document.createElement('div');
+        annotation.className = 'regression-stats mt-2 text-center';
+        annotation.innerHTML = `<strong>R²:</strong> ${rSquared.toFixed(3)}`;
+        container.appendChild(annotation);
+
+        chart.update();
+    }
+}
+
+/**
+ * Calculate linear regression line parameters
+ * @param {Array} xValues - Array of x values
+ * @param {Array} yValues - Array of y values
+ * @returns {Object} Object containing slope, intercept and R²
+ */
+function calculateRegressionLine(xValues, yValues) {
+    const n = xValues.length;
+
+    // Calculate means
+    const xMean = xValues.reduce((sum, val) => sum + val, 0) / n;
+    const yMean = yValues.reduce((sum, val) => sum + val, 0) / n;
+
+    // Calculate slope and intercept
+    let numerator = 0;
+    let denominator = 0;
+
+    for (let i = 0; i < n; i++) {
+        numerator += (xValues[i] - xMean) * (yValues[i] - yMean);
+        denominator += Math.pow(xValues[i] - xMean, 2);
+    }
+
+    const slope = numerator / denominator;
+    const intercept = yMean - slope * xMean;
+
+    // Calculate R-squared
+    let totalSumSquares = 0;
+    let residualSumSquares = 0;
+
+    for (let i = 0; i < n; i++) {
+        const predictedY = slope * xValues[i] + intercept;
+        totalSumSquares += Math.pow(yValues[i] - yMean, 2);
+        residualSumSquares += Math.pow(yValues[i] - predictedY, 2);
+    }
+
+    const r2 = 1 - (residualSumSquares / totalSumSquares);
+
+    return { slope, intercept, r2 };
+}
+
+/**
+ * Create a box plot for comparing distributions
+ * @param {Object} data - Object with group names as keys and arrays of values as values
+ * @param {string} containerId - The ID of the container element
+ * @param {string} title - Chart title
+ * @param {string} yAxisLabel - Label for y-axis
+ */
+function createBoxPlot(data, containerId, title, yAxisLabel) {
+    const container = document.getElementById(containerId);
+
+    // Create canvas for chart
+    const canvas = document.createElement('canvas');
+    canvas.id = `boxplot-${containerId}`;
+    container.innerHTML = '';
+    container.appendChild(canvas);
+
+    // Prepare data for Chart.js boxplot plugin
+    const labels = Object.keys(data);
+    const datasets = [{
+        label: yAxisLabel,
+        backgroundColor: 'rgba(0, 123, 255, 0.5)',
+        borderColor: 'rgb(0, 123, 255)',
+        borderWidth: 1,
+        outlierColor: '#999999',
+        padding: 10,
+        itemRadius: 3,
+        data: []
+    }];
+
+    // Calculate statistics for each group
+    labels.forEach(group => {
+        const values = data[group].sort((a, b) => a - b);
+        const min = values[0];
+        const max = values[values.length - 1];
+
+        const q1Idx = Math.floor(values.length * 0.25);
+        const medianIdx = Math.floor(values.length * 0.5);
+        const q3Idx = Math.floor(values.length * 0.75);
+
+        const q1 = values[q1Idx];
+        const median = values[medianIdx];
+        const q3 = values[q3Idx];
+
+        // Find outliers (values outside 1.5 * IQR)
+        const iqr = q3 - q1;
+        const upperFence = q3 + 1.5 * iqr;
+        const lowerFence = q1 - 1.5 * iqr;
+
+        const filteredValues = values.filter(v => v >= lowerFence && v <= upperFence);
+        const filteredMin = filteredValues[0];
+        const filteredMax = filteredValues[filteredValues.length - 1];
+
+        const outliers = values.filter(v => v < lowerFence || v > upperFence);
+
+        // Format data for Chart.js
+        datasets[0].data.push({
+            min: filteredMin,
+            q1: q1,
+            median: median,
+            q3: q3,
+            max: filteredMax,
+            outliers: outliers
+        });
+    });
+
+    // Create box plot
+    new Chart(canvas, {
+        type: 'boxplot',
+        data: {
+            labels: labels,
+            datasets: datasets
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                title: {
+                    display: true,
+                    text: title,
+                    font: {
+                        size: 16
+                    }
+                },
+                legend: {
+                    display: false
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: false,
+                    title: {
+                        display: true,
+                        text: yAxisLabel
+                    }
+                },
+                x: {
+                    title: {
+                        display: true,
+                        text: 'Group'
+                    }
+                }
+            }
+        }
+    });
+
+    // Calculate statistical significance
+    if (labels.length > 1) {
+        calculateAndDisplayStatistics(data, container);
+    }
+}
