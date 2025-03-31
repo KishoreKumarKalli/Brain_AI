@@ -1,0 +1,138 @@
+{% extends 'base.html' %}
+
+{% block title %}Brain AI - Home{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12 text-center mb-4">
+        <h1 class="display-4"><i class="fas fa-brain text-primary me-2"></i>Brain AI</h1>
+        <p class="lead">Open-Source AI Framework for Automated Brain Segmentation, Abnormality Detection, and Statistical Analysis</p>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-12 mb-4">
+        <div class="card shadow">
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <h2>Get Started</h2>
+                        <p>
+                            Brain AI is an open-source framework for analyzing 3D neuroimaging data (MRI, CT) to segment brain regions
+                            and detect abnormalities such as tumors, lesions, and atrophy.
+                        </p>
+                        <div class="d-grid gap-2 d-md-block">
+                            <a href="{{ url_for('upload_file') }}" class="btn btn-primary me-md-2">
+                                <i class="fas fa-upload me-1"></i> Upload Scan
+                            </a>
+                            <a href="{{ url_for('statistical_analysis') }}" class="btn btn-outline-primary">
+                                <i class="fas fa-chart-bar me-1"></i> Statistical Analysis
+                            </a>
+                        </div>
+                    </div>
+                    <div class="col-md-6 text-center">
+                        <img src="{{ url_for('static', filename='img/brain_mri.png') }}" alt="Brain MRI Visualization"
+                             class="img-fluid rounded" style="max-height: 300px;">
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-4 mb-4">
+        <div class="card h-100 shadow-sm">
+            <div class="card-body text-center">
+                <i class="fas fa-brain text-primary mb-3" style="font-size: 3rem;"></i>
+                <h3>Brain Segmentation</h3>
+                <p>
+                    Accurately segment anatomical regions of the brain including gray matter, white matter,
+                    ventricles, and hippocampus from 3D MRI scans.
+                </p>
+                <p class="card-text text-muted small">
+                    Status: {% if segmentation_model_loaded %}
+                        <span class="text-success"><i class="fas fa-check-circle"></i> Available</span>
+                    {% else %}
+                        <span class="text-danger"><i class="fas fa-exclamation-circle"></i> Unavailable</span>
+                    {% endif %}
+                </p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4 mb-4">
+        <div class="card h-100 shadow-sm">
+            <div class="card-body text-center">
+                <i class="fas fa-exclamation-triangle text-warning mb-3" style="font-size: 3rem;"></i>
+                <h3>Abnormality Detection</h3>
+                <p>
+                    Identify and visualize brain abnormalities such as tumors, lesions, and signs of
+                    atrophy in MRI and CT scans.
+                </p>
+                <p class="card-text text-muted small">
+                    Status: {% if anomaly_model_loaded %}
+                        <span class="text-success"><i class="fas fa-check-circle"></i> Available</span>
+                    {% else %}
+                        <span class="text-danger"><i class="fas fa-exclamation-circle"></i> Unavailable</span>
+                    {% endif %}
+                </p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4 mb-4">
+        <div class="card h-100 shadow-sm">
+            <div class="card-body text-center">
+                <i class="fas fa-chart-line text-success mb-3" style="font-size: 3rem;"></i>
+                <h3>Statistical Analysis</h3>
+                <p>
+                    Perform statistical analysis across patient cohorts (CN, MCI, AD) and correlate findings
+                    with clinical outcomes.
+                </p>
+                <p class="card-text text-muted small">
+                    Available clinical data: ADNI T1, CDR, MMSE, GDSCALE, ADAS
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-3">
+    <div class="col-12">
+        <div class="card shadow-sm">
+            <div class="card-body">
+                <h3>How It Works</h3>
+                <div class="row">
+                    <div class="col-md-3 text-center mb-3">
+                        <div class="rounded-circle bg-light p-3 d-inline-block">
+                            <i class="fas fa-upload text-primary" style="font-size: 2rem;"></i>
+                        </div>
+                        <h5 class="mt-2">Upload</h5>
+                        <p class="small text-muted">Upload your NIfTI (.nii/.nii.gz) brain scan files</p>
+                    </div>
+                    <div class="col-md-3 text-center mb-3">
+                        <div class="rounded-circle bg-light p-3 d-inline-block">
+                            <i class="fas fa-cogs text-primary" style="font-size: 2rem;"></i>
+                        </div>
+                        <h5 class="mt-2">Process</h5>
+                        <p class="small text-muted">Choose segmentation and analysis options</p>
+                    </div>
+                    <div class="col-md-3 text-center mb-3">
+                        <div class="rounded-circle bg-light p-3 d-inline-block">
+                            <i class="fas fa-eye text-primary" style="font-size: 2rem;"></i>
+                        </div>
+                        <h5 class="mt-2">Visualize</h5>
+                        <p class="small text-muted">View 3D renderings and segmentation results</p>
+                    </div>
+                    <div class="col-md-3 text-center mb-3">
+                        <div class="rounded-circle bg-light p-3 d-inline-block">
+                            <i class="fas fa-chart-bar text-primary" style="font-size: 2rem;"></i>
+                        </div>
+                        <h5 class="mt-2">Analyze</h5>
+                        <p class="small text-muted">Perform statistical analysis and generate reports</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
