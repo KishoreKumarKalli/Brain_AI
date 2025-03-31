@@ -2290,3 +2290,264 @@ function displayAnalysisResults(results, analysisType) {
         displayClassificationResults(container, results);
     }
 }
+function displayGroupComparison(container, results) {
+    // Clear any existing content
+    container.empty();
+
+    // Check if we have valid results
+    if (!results || !results.comparisons || results.comparisons.length === 0) {
+        container.append('<div class="alert alert-warning">No comparison data available.</div>');
+        return;
+    }
+
+    // Create accordion for different metrics
+    const accordion = $('<div class="accordion" id="comparisonAccordion"></div>');
+    container.append(accordion);
+
+    // Process each comparison
+    results.comparisons.forEach((comparison, index) => {
+        // Create accordion item
+        const metricName = comparison.metric || `Metric ${index + 1}`;
+        const accordionItem = `
+            <div class="accordion-item">
+                <h2 class="accordion-header" id="heading-${index}">
+                    <button class="accordion-button ${index === 0 ? '' : 'collapsed'}" type="button" 
+                            data-bs-toggle="collapse" data-bs-target="#collapse-${index}" 
+                            aria-expanded="${index === 0 ? 'true' : 'false'}" aria-controls="collapse-${index}">
+                        <strong>${metricName}</strong>
+                        ${comparison.significant ? 
+                            '<span class="badge bg-danger ms-2">Significant</span>' : 
+                            '<span class="badge bg-secondary ms-2">Non-significant</span>'}
+                        <span class="ms-3 text-muted">p-value: ${comparison.p_value.toFixed(4)}</span>
+                    </button>
+                </h2>
+                <div id="collapse-${index}" class="accordion-collapse collapse ${index === 0 ? 'show' : ''}" 
+                     aria-labelledby="heading-${index}" data-bs-parent="#comparisonAccordion">
+                    <div class="accordion-body">
+                        <div id="chart-container-${index}" class="chart-container" style="height: 400px;"></div>
+                        <div class="mt-3 table-responsive">
+                            <table class="table table-sm table-bordered">
+                                <thead>
+                                    <tr>
+                                        <th>Group</th>
+                                        <th>Mean</th>
+                                        <th>StdDev</th>
+                                        <th>Min</th>
+                                        <th>Max</th>
+                                        <th>Median</th>
+                                        <th>N</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="stats-table-${index}">
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        accordion.append(accordionItem);
+
+        // Add data to the stats table
+        const statsTable = $(`#stats-table-${index}`);
+        Object.entries(comparison.group_stats).forEach(([group, stats]) => {
+            statsTable.append(`
+                <tr>
+                    <td><strong>${group}</strong></td>
+                    <td>${stats.mean.toFixed(2)}</td>
+                    <td>${stats.std.toFixed(2)}</td>
+                    <td>${stats.min.toFixed(2)}</td>
+                    <td>${stats.max.toFixed(2)}</td>
+                    <td>${stats.median.toFixed(2)}</td>
+                    <td>${stats.count}</td>
+                </tr>
+            `);
+        });
+
+        // Render the chart after the DOM has been updated
+        setTimeout(() => {
+            createComparisonChart(`chart-container-${index}`, comparison);
+        }, 100);
+    });
+}
+
+function createComparisonChart(containerId, comparison) {
+    // Prepare data for the chart
+    const groups = Object.keys(comparison.group_stats);
+    const means = groups.map(group => comparison.group_stats[group].mean);
+    const errors = groups.map(group => comparison.group_stats[group].std);
+    const counts = groups.map(group => comparison.group_stats[group].count);
+
+    // Different colors for each group
+    const colors = ['#4e73df', '#1cc88a', '#f6c23e', '#e74a3b', '#36b9cc', '#6f42c1'];
+
+    // Create chart
+    const ctx = document.getElementById(containerId);
+    const chart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: groups,
+            datasets: [{
+                label: comparison.metric,
+                data: means,
+                backgroundColor: groups.map((_, i) => colors[i % colors.length]),
+                borderColor: groups.map((_, i) => colors[i % colors.length]),
+                borderWidth: 1,
+                errorBars: {
+                    show: true,
+                    color: 'black',
+                    lineWidth: 2,
+                    tipWidth: 6
+                }
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                title: {
+                    display: true,
+                    text: `${comparison.metric} Comparison (p=${comparison.p_value.toFixed(4)})`,
+                    font: {
+                        size: 16
+                    }
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            const index = context.dataIndex;
+                            return [
+                                `Mean: ${means[index].toFixed(2)}`,
+                                `StdDev: ${errors[index].toFixed(2)}`,
+                                `N: ${counts[index]}`
+                            ];
+                        }
+                    }
+                },
+                legend: {
+                    display: false
+                },
+                datalabels: {
+                    display: true,
+                    align: 'end',
+                    anchor: 'end',
+                    formatter: function(value, context) {
+                        return value.toFixed(1);
+                    }
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: false,
+                    title: {
+                        display: true,
+                        text: comparison.metric_units || comparison.metric
+                    }
+                },
+                x: {
+                    title: {
+                        display: true,
+                        text: 'Groups'
+                    }
+                }
+            }
+        }
+    });
+
+    // Add error bars
+    if (Chart.plugins.getAll().findIndex(p => p.id === 'chartjs-plugin-error-bars') !== -1) {
+        chart.data.datasets[0].errorBars = {
+            yMin: means.map((mean, i) => mean - errors[i]),
+            yMax: means.map((mean, i) => mean + errors[i])
+        };
+        chart.update();
+    }
+}
+
+function displayCorrelationAnalysis(container, results) {
+    // Clear any existing content
+    container.empty();
+
+    // Check if we have valid results
+    if (!results || !results.correlations || results.correlations.length === 0) {
+        container.append('<div class="alert alert-warning">No correlation data available.</div>');
+        return;
+    }
+
+    // Create table for correlations
+    const table = $(`
+        <div class="table-responsive">
+            <table class="table table-striped table-hover">
+                <thead>
+                    <tr>
+                        <th>Variable X</th>
+                        <th>Variable Y</th>
+                        <th>Correlation (r)</th>
+                        <th>p-value</th>
+                        <th>Significance</th>
+                        <th>Plot</th>
+                    </tr>
+                </thead>
+                <tbody id="correlation-table-body">
+                </tbody>
+            </table>
+        </div>
+    `);
+
+    container.append(table);
+
+    // Container for scatter plots
+    const plotContainer = $('<div id="correlation-plots" class="mt-4"></div>');
+    container.append(plotContainer);
+
+    // Add rows to the table
+    const tableBody = $('#correlation-table-body');
+    results.correlations.forEach((corr, index) => {
+        const row = $(`
+            <tr class="${corr.significant ? 'table-success' : ''}">
+                <td>${corr.variable_x}</td>
+                <td>${corr.variable_y}</td>
+                <td>${corr.r.toFixed(3)}</td>
+                <td>${corr.p_value.toFixed(4)}</td>
+                <td>${corr.significant ? 
+                    '<span class="badge bg-success">Significant</span>' : 
+                    '<span class="badge bg-secondary">Non-significant</span>'}</td>
+                <td>
+                    <button class="btn btn-sm btn-primary show-plot-btn" data-index="${index}">
+                        <i class="fas fa-chart-scatter"></i> Plot
+                    </button>
+                </td>
+            </tr>
+        `);
+        tableBody.append(row);
+    });
+
+    // Handle plot button clicks
+    $('.show-plot-btn').on('click', function() {
+        const index = $(this).data('index');
+        const corr = results.correlations[index];
+
+        // Clear existing plots and create new one
+        plotContainer.empty();
+
+        const chartContainer = $(`
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5>Correlation: ${corr.variable_x} vs ${corr.variable_y}</h5>
+                    <p class="mb-0">r = ${corr.r.toFixed(3)}, p = ${corr.p_value.toFixed(4)}</p>
+                </div>
+                <div class="card-body">
+                    <canvas id="scatter-plot-${index}" width="400" height="300"></canvas>
+                </div>
+            </div>
+        `);
+
+        plotContainer.append(chartContainer);
+
+        // Create scatter plot
+        setTimeout(() => {
+            createScatterPlot(`scatter-plot-${index}`, corr);
+        }, 100);
+    });
+}
