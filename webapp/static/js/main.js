@@ -1217,3 +1217,541 @@ function createBoxPlot(data, containerId, title, yAxisLabel) {
         calculateAndDisplayStatistics(data, container);
     }
 }
+function calculateAndDisplayStatistics(data, container) {
+    // Clear the container
+    container.empty();
+
+    // Check if data is empty
+    if (!data || data.length === 0) {
+        container.append('<div class="alert alert-warning">No data available for analysis</div>');
+        return;
+    }
+
+    // Identify numeric columns for statistical analysis
+    const numericColumns = [];
+    const categoricalColumns = [];
+
+    // Determine column types from the first data entry
+    Object.keys(data[0]).forEach(key => {
+        if (!isNaN(parseFloat(data[0][key])) && data[0][key] !== '') {
+            numericColumns.push(key);
+        } else {
+            categoricalColumns.push(key);
+        }
+    });
+
+    // Skip ID columns and date columns for statistical analysis
+    const skipColumns = ['ID', 'PTID', 'RID', 'VISCODE', 'SITEID', 'Date', 'EXAMDATE'];
+    const filteredNumericColumns = numericColumns.filter(col => !skipColumns.some(skip => col.toUpperCase().includes(skip)));
+
+    // Create a card for basic statistics
+    const statsCard = $(`
+        <div class="card mb-4">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0">Basic Statistics</h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-bordered table-striped table-sm">
+                        <thead>
+                            <tr>
+                                <th>Measure</th>
+                                <th>Mean</th>
+                                <th>Median</th>
+                                <th>Std Dev</th>
+                                <th>Min</th>
+                                <th>Max</th>
+                            </tr>
+                        </thead>
+                        <tbody id="statsTableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    `);
+
+    container.append(statsCard);
+
+    // Calculate statistics for each numeric column
+    filteredNumericColumns.forEach(column => {
+        // Extract values for this column, filtering out missing values
+        const values = data.map(row => parseFloat(row[column]))
+                           .filter(val => !isNaN(val));
+
+        if (values.length === 0) return;
+
+        // Calculate statistics
+        const mean = values.reduce((sum, val) => sum + val, 0) / values.length;
+
+        // Sort values for median and percentiles
+        const sortedValues = [...values].sort((a, b) => a - b);
+        const median = sortedValues.length % 2 === 0 ?
+            (sortedValues[sortedValues.length / 2 - 1] + sortedValues[sortedValues.length / 2]) / 2 :
+            sortedValues[Math.floor(sortedValues.length / 2)];
+
+        // Calculate standard deviation
+        const sumSquaredDiffs = values.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0);
+        const stdDev = Math.sqrt(sumSquaredDiffs / values.length);
+
+        // Min and Max
+        const min = Math.min(...values);
+        const max = Math.max(...values);
+
+        // Add to statistics table
+        const tableRow = `
+            <tr>
+                <td>${column}</td>
+                <td>${mean.toFixed(2)}</td>
+                <td>${median.toFixed(2)}</td>
+                <td>${stdDev.toFixed(2)}</td>
+                <td>${min.toFixed(2)}</td>
+                <td>${max.toFixed(2)}</td>
+            </tr>
+        `;
+        $('#statsTableBody').append(tableRow);
+    });
+
+    // Create visualizations for each numeric column
+    const visualizationsCard = $(`
+        <div class="card mb-4">
+            <div class="card-header bg-info text-white">
+                <h5 class="mb-0">Visualizations</h5>
+            </div>
+            <div class="card-body">
+                <div class="row" id="visualizationsContainer"></div>
+            </div>
+        </div>
+    `);
+
+    container.append(visualizationsCard);
+
+    // Generate visualizations for top numeric variables
+    const topVariables = filteredNumericColumns.slice(0, 6); // Limit to top 6 for better UI
+
+    topVariables.forEach((column, index) => {
+        // Create a container for this visualization
+        const vizContainer = $(`
+            <div class="col-md-6 mb-4">
+                <div class="card h-100">
+                    <div class="card-header">
+                        <h6 class="mb-0">${column}</h6>
+                    </div>
+                    <div class="card-body">
+                        <canvas id="chart-${index}" width="100%" height="250"></canvas>
+                    </div>
+                </div>
+            </div>
+        `);
+
+        $('#visualizationsContainer').append(vizContainer);
+
+        // Extract valid values for this column
+        const values = data.map(row => parseFloat(row[column]))
+                           .filter(val => !isNaN(val));
+
+        if (values.length === 0) return;
+
+        // Create histogram data
+        const min = Math.min(...values);
+        const max = Math.max(...values);
+        const binWidth = (max - min) / 10;
+        const bins = Array.from({ length: 10 }, (_, i) => min + i * binWidth);
+
+        const counts = Array(10).fill(0);
+        values.forEach(val => {
+            for (let i = 0; i < bins.length; i++) {
+                if (val >= bins[i] && (i === bins.length - 1 || val < bins[i + 1])) {
+                    counts[i]++;
+                    break;
+                }
+            }
+        });
+
+        // Format bin labels
+        const binLabels = bins.map((val, i) =>
+            i === bins.length - 1 ? `${val.toFixed(1)}+` : `${val.toFixed(1)}-${(val + binWidth).toFixed(1)}`
+        );
+
+        // Create histogram chart
+        const ctx = document.getElementById(`chart-${index}`).getContext('2d');
+        new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: binLabels,
+                datasets: [{
+                    label: column,
+                    data: counts,
+                    backgroundColor: 'rgba(54, 162, 235, 0.5)',
+                    borderColor: 'rgba(54, 162, 235, 1)',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: 'Frequency'
+                        }
+                    },
+                    x: {
+                        title: {
+                            display: true,
+                            text: column
+                        }
+                    }
+                }
+            }
+        });
+    });
+
+    // Create correlation analysis if we have multiple numeric columns
+    if (filteredNumericColumns.length > 1) {
+        const correlationCard = $(`
+            <div class="card mb-4">
+                <div class="card-header bg-success text-white">
+                    <h5 class="mb-0">Correlation Analysis</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-12 mb-4">
+                            <canvas id="correlationHeatmap" width="100%" height="400"></canvas>
+                        </div>
+                        <div class="col-md-12">
+                            <div class="table-responsive">
+                                <table class="table table-bordered table-sm" id="correlationTable">
+                                    <thead id="correlationTableHead"></thead>
+                                    <tbody id="correlationTableBody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `);
+
+        container.append(correlationCard);
+
+        // Limit to top 10 variables for correlation analysis to maintain readability
+        const correlationColumns = filteredNumericColumns.slice(0, 10);
+
+        // Calculate correlation matrix
+        const correlationMatrix = calculateCorrelationMatrix(data, correlationColumns);
+
+        // Create correlation table
+        const headRow = $('<tr><th>Variable</th></tr>');
+        correlationColumns.forEach(col => {
+            headRow.append(`<th>${col}</th>`);
+        });
+        $('#correlationTableHead').append(headRow);
+
+        correlationColumns.forEach((rowCol, i) => {
+            const tableRow = $(`<tr><th>${rowCol}</th></tr>`);
+
+            correlationColumns.forEach((colCol, j) => {
+                const correlation = correlationMatrix[i][j];
+
+                // Color code by correlation strength
+                let cellClass = '';
+                if (i !== j) {  // Skip self-correlations
+                    if (Math.abs(correlation) > 0.7) cellClass = 'table-danger';
+                    else if (Math.abs(correlation) > 0.5) cellClass = 'table-warning';
+                    else if (Math.abs(correlation) > 0.3) cellClass = 'table-info';
+                    else cellClass = 'table-light';
+                }
+
+                tableRow.append(`<td class="${cellClass}">${correlation.toFixed(2)}</td>`);
+            });
+
+            $('#correlationTableBody').append(tableRow);
+        });
+
+        // Create correlation heatmap
+        const ctx = document.getElementById('correlationHeatmap').getContext('2d');
+
+        // Prepare data for heatmap
+        const heatmapData = {
+            labels: correlationColumns,
+            datasets: correlationColumns.map((col, i) => {
+                return {
+                    label: col,
+                    data: correlationMatrix[i],
+                    backgroundColor: (ctx) => {
+                        const value = correlationMatrix[i][ctx.dataIndex];
+
+                        // Color scale for correlation: blue (negative) to red (positive)
+                        if (ctx.dataIndex === i) {
+                            return 'rgba(0, 0, 0, 0.1)';  // Self-correlation
+                        } else if (value > 0) {
+                            return `rgba(255, 0, 0, ${Math.min(Math.abs(value), 1)})`;
+                        } else {
+                            return `rgba(0, 0, 255, ${Math.min(Math.abs(value), 1)})`;
+                        }
+                    }
+                };
+            })
+        };
+
+        new Chart(ctx, {
+            type: 'matrix',
+            data: {
+                datasets: [{
+                    label: 'Correlation Matrix',
+                    data: generateHeatmapData(correlationMatrix, correlationColumns),
+                    backgroundColor: (ctx) => {
+                        if (ctx.dataset.data[ctx.dataIndex]) {
+                            const value = ctx.dataset.data[ctx.dataIndex].v;
+
+                            // Return transparent for cells where i === j (self-correlation)
+                            if (ctx.dataset.data[ctx.dataIndex].x === ctx.dataset.data[ctx.dataIndex].y) {
+                                return 'rgba(0, 0, 0, 0.1)';
+                            }
+
+                            // Color scale: blue (negative) to white (zero) to red (positive)
+                            if (value > 0) {
+                                return `rgba(255, 0, 0, ${Math.min(Math.abs(value) * 0.8 + 0.2, 1)})`;
+                            } else {
+                                return `rgba(0, 0, 255, ${Math.min(Math.abs(value) * 0.8 + 0.2, 1)})`;
+                            }
+                        }
+                        return 'rgba(0, 0, 0, 0)';
+                    },
+                    borderColor: 'white',
+                    borderWidth: 1,
+                    width: ({ chart }) => (chart.chartArea || {}).width / correlationColumns.length - 1,
+                    height: ({ chart }) => (chart.chartArea || {}).height / correlationColumns.length - 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    tooltip: {
+                        callbacks: {
+                            title: function(context) {
+                                const item = context[0];
+                                const data = item.dataset.data[item.dataIndex];
+                                return `${correlationColumns[data.y]} vs ${correlationColumns[data.x]}`;
+                            },
+                            label: function(context) {
+                                const value = context.dataset.data[context.dataIndex].v;
+                                return `Correlation: ${value.toFixed(2)}`;
+                            }
+                        }
+                    },
+                    legend: {
+                        display: false
+                    }
+                },
+                scales: {
+                    x: {
+                        type: 'category',
+                        labels: correlationColumns,
+                        offset: true,
+                        ticks: {
+                            minRotation: 45,
+                            maxRotation: 45
+                        },
+                        grid: {
+                            display: false
+                        },
+                        title: {
+                            display: true,
+                            text: 'Variables'
+                        }
+                    },
+                    y: {
+                        type: 'category',
+                        labels: correlationColumns,
+                        offset: true,
+                        reverse: true,
+                        grid: {
+                            display: false
+                        },
+                        title: {
+                            display: true,
+                            text: 'Variables'
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // Group Comparison (if categorical columns are available)
+    if (categoricalColumns.length > 0) {
+        const groupComparisonCard = $(`
+            <div class="card mb-4">
+                <div class="card-header bg-warning text-white">
+                    <h5 class="mb-0">Group Comparison</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label for="groupBySelect" class="form-label">Group By:</label>
+                            <select class="form-select" id="groupBySelect">
+                                <option value="">Select a category</option>
+                                ${categoricalColumns.map(col => `<option value="${col}">${col}</option>`).join('')}
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="compareVarSelect" class="form-label">Compare Variable:</label>
+                            <select class="form-select" id="compareVarSelect">
+                                <option value="">Select a variable</option>
+                                ${filteredNumericColumns.map(col => `<option value="${col}">${col}</option>`).join('')}
+                            </select>
+                        </div>
+                    </div>
+                    <div class="d-grid gap-2 col-md-4 mx-auto mb-4">
+                        <button class="btn btn-primary" id="runComparisonBtn">Run Comparison</button>
+                    </div>
+                    <div id="comparisonResults"></div>
+                </div>
+            </div>
+        `);
+
+        container.append(groupComparisonCard);
+
+        // Handle group comparison button click
+        $('#runComparisonBtn').click(function() {
+            const groupBy = $('#groupBySelect').val();
+            const compareVar = $('#compareVarSelect').val();
+
+            if (!groupBy || !compareVar) {
+                $('#comparisonResults').html('<div class="alert alert-warning">Please select both a grouping category and a variable to compare.</div>');
+                return;
+            }
+
+            // Run the comparison
+            runGroupComparison(data, groupBy, compareVar);
+        });
+    }
+
+    // Longitudinal Analysis (if there's a date or visit code column)
+    const possibleDateColumns = data[0] ? Object.keys(data[0]).filter(key =>
+        key.toUpperCase().includes('DATE') ||
+        key.toUpperCase().includes('VISIT') ||
+        key.toUpperCase().includes('VISCODE')
+    ) : [];
+
+    if (possibleDateColumns.length > 0) {
+        const longitudinalCard = $(`
+            <div class="card mb-4">
+                <div class="card-header bg-secondary text-white">
+                    <h5 class="mb-0">Longitudinal Analysis</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row mb-3">
+                        <div class="col-md-4">
+                            <label for="timeVariableSelect" class="form-label">Time Variable:</label>
+                            <select class="form-select" id="timeVariableSelect">
+                                <option value="">Select a time variable</option>
+                                ${possibleDateColumns.map(col => `<option value="${col}">${col}</option>`).join('')}
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label for="longitudinalVarSelect" class="form-label">Measure:</label>
+                            <select class="form-select" id="longitudinalVarSelect">
+                                <option value="">Select a variable</option>
+                                ${filteredNumericColumns.map(col => `<option value="${col}">${col}</option>`).join('')}
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label for="groupingVarSelect" class="form-label">Group By (Optional):</label>
+                            <select class="form-select" id="groupingVarSelect">
+                                <option value="">None</option>
+                                ${categoricalColumns.map(col => `<option value="${col}">${col}</option>`).join('')}
+                            </select>
+                        </div>
+                    </div>
+                    <div class="d-grid gap-2 col-md-4 mx-auto mb-4">
+                        <button class="btn btn-primary" id="runLongitudinalBtn">Run Analysis</button>
+                    </div>
+                    <div id="longitudinalResults"></div>
+                </div>
+            </div>
+        `);
+
+        container.append(longitudinalCard);
+
+        // Handle longitudinal analysis button click
+        $('#runLongitudinalBtn').click(function() {
+            const timeVar = $('#timeVariableSelect').val();
+            const longitudinalVar = $('#longitudinalVarSelect').val();
+            const groupingVar = $('#groupingVarSelect').val();
+
+            if (!timeVar || !longitudinalVar) {
+                $('#longitudinalResults').html('<div class="alert alert-warning">Please select both a time variable and a measure.</div>');
+                return;
+            }
+
+            // Run the longitudinal analysis
+            runLongitudinalAnalysis(data, timeVar, longitudinalVar, groupingVar);
+        });
+    }
+}
+
+// Helper function to calculate correlation between two arrays
+function calculateCorrelation(x, y) {
+    const n = x.length;
+    if (n !== y.length || n === 0) return 0;
+
+    // Calculate means
+    const xMean = x.reduce((sum, val) => sum + val, 0) / n;
+    const yMean = y.reduce((sum, val) => sum + val, 0) / n;
+
+    // Calculate numerator and denominators
+    let numerator = 0;
+    let xDenominator = 0;
+    let yDenominator = 0;
+
+    for (let i = 0; i < n; i++) {
+        const xDiff = x[i] - xMean;
+        const yDiff = y[i] - yMean;
+
+        numerator += xDiff * yDiff;
+        xDenominator += xDiff * xDiff;
+        yDenominator += yDiff * yDiff;
+    }
+
+    // Avoid division by zero
+    if (xDenominator === 0 || yDenominator === 0) return 0;
+
+    return numerator / Math.sqrt(xDenominator * yDenominator);
+}
+
+// Calculate correlation matrix for multiple variables
+function calculateCorrelationMatrix(data, columns) {
+    const n = columns.length;
+    const matrix = Array(n).fill().map(() => Array(n).fill(0));
+
+    // Extract arrays of values for each column
+    const columnValues = columns.map(col => {
+        return data.map(row => parseFloat(row[col]))
+                  .filter(val => !isNaN(val));
+    });
+
+    // Calculate correlations
+    for (let i = 0; i < n; i++) {
+        for (let j = i; j < n; j++) {
+            // Find common indices where both columns have valid values
+            const validI = columnValues[i];
+            const validJ = columnValues[j];
+
+            // Only calculate if we have enough data points
+            if (validI.length >= 3 && validJ.length >= 3) {
+                // Calculate correlation
+                const correlation = i === j ? 1.0 : calculateCorrelation(validI, validJ);
+
+                // Fill the matrix (symmetric)
+                matrix[i][j] = correlation;
+                matrix[j][i] = correlation;
+            }
+        }
+    }
+
+    return matrix;
+}
