@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Upload MRI Scan - Brain MRI Analysis Platform</title>
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='img/favicon.png') }}">
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <!-- Dropzone CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/dropzone@5/dist/min/dropzone.min.css" type="text/css" />
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    <!-- Metadata -->
+    <meta name="description" content="Upload your brain MRI scans for automated analysis">
+    <meta name="keywords" content="brain MRI, upload, analysis, medical imaging">
+    <meta name="author" content="KishoreKumarKalli">
+    <meta name="creation-date" content="2025-04-02 15:21:56">
+    <meta name="version" content="1.0.0">
+</head>
+<body>
+    <!-- Navigation Bar -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="{{ url_for('index') }}">
+                <img src="{{ url_for('static', filename='img/logo.png') }}" alt="Brain AI Logo" height="40">
+                Brain MRI Analysis
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav"
+                aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('index') }}">Home</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link active" href="{{ url_for('upload_file') }}">Upload</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('documentation') }}">Documentation</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('about') }}">About</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Page Header -->
+    <header class="page-header bg-gradient text-white py-5">
+        <div class="container">
+            <div class="row">
+                <div class="col-md-8 mx-auto text-center">
+                    <h1 class="fw-bold">Upload Your MRI Scan</h1>
+                    <p class="lead">Upload your brain MRI scan for segmentation, volumetric analysis, and abnormality detection</p>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Upload Section -->
+    <section class="py-5">
+        <div class="container">
+            <div class="row">
+                <div class="col-lg-8 mx-auto">
+                    <!-- Flash Messages -->
+                    {% with messages = get_flashed_messages() %}
+                        {% if messages %}
+                            {% for message in messages %}
+                                <div class="alert alert-warning alert-dismissible fade show" role="alert">
+                                    {{ message }}
+                                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                                </div>
+                            {% endfor %}
+                        {% endif %}
+                    {% endwith %}
+
+                    <!-- Upload Card -->
+                    <div class="card border-0 shadow-lg">
+                        <div class="card-header bg-white py-3">
+                            <ul class="nav nav-tabs card-header-tabs" id="myTab" role="tablist">
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link active" id="single-tab" data-bs-toggle="tab" data-bs-target="#single" type="button" role="tab" aria-controls="single" aria-selected="true">
+                                        <i class="fas fa-file-upload me-2"></i>Single File Upload
+                                    </button>
+                                </li>
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link" id="batch-tab" data-bs-toggle="tab" data-bs-target="#batch" type="button" role="tab" aria-controls="batch" aria-selected="false">
+                                        <i class="fas fa-folder-open me-2"></i>Batch Upload
+                                    </button>
+                                </li>
+                            </ul>
+                        </div>
+                        <div class="card-body p-4">
+                            <div class="tab-content" id="myTabContent">
+                                <!-- Single File Upload Tab -->
+                                <div class="tab-pane fade show active" id="single" role="tabpanel" aria-labelledby="single-tab">
+                                    <h4 class="card-title mb-4">Upload Single MRI File</h4>
+
+                                    <form action="{{ url_for('upload_file') }}" method="post" enctype="multipart/form-data" id="singleUploadForm">
+                                        <div class="upload-area mb-4" id="uploadArea">
+                                            <div class="upload-icon">
+                                                <i class="fas fa-cloud-upload-alt"></i>
+                                            </div>
+                                            <div class="upload-text">
+                                                <p>Drag and drop your MRI file here</p>
+                                                <p class="small text-muted">or</p>
+                                                <label for="file" class="btn btn-primary">Browse Files</label>
+                                                <input type="file" name="file" id="file" class="d-none" accept=".nii,.nii.gz,.mgz,.mgh">
+                                            </div>
+                                            <div class="selected-file mt-3 d-none" id="selectedFile">
+                                                <div class="alert alert-success d-flex align-items-center">
+                                                    <i class="fas fa-file-medical me-2"></i>
+                                                    <span id="fileName">filename.nii.gz</span>
+                                                    <button type="button" class="btn-close ms-auto" id="removeFile"></button>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div class="supported-formats mb-4">
+                                            <h6 class="fw-bold">Supported Formats:</h6>
+                                            <div class="d-flex flex-wrap">
+                                                <span class="badge bg-light text-dark me-2 mb-2">NIfTI (.nii)</span>
+                                                <span class="badge bg-light text-dark me-2 mb-2">Compressed NIfTI (.nii.gz)</span>
+                                                <span class="badge bg-light text-dark me-2 mb-2">FreeSurfer (.mgz, .mgh)</span>
+                                            </div>
+                                        </div>
+
+                                        <div class="mb-3">
+                                            <h6 class="fw-bold">Optional Patient Information:</h6>
+                                            <p class="small text-muted">This information is only used for your reference and is not stored on our servers</p>
+                                            <div class="row g-3">
+                                                <div class="col-md-6">
+                                                    <label for="patientId" class="form-label">Patient ID (optional)</label>
+                                                    <input type="text" class="form-control" id="patientId" name="patientId" placeholder="e.g., P12345">
+                                                </div>
+                                                <div class="col-md-6">
+                                                    <label for="scanDate" class="form-label">Scan Date (optional)</label>
+                                                    <input type="date" class="form-control" id="scanDate" name="scanDate">
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div class="form-check mb-4">
+                                            <input class="form-check-input" type="checkbox" id="uploadAgreement" required>
+                                            <label class="form-check-label" for="uploadAgreement">
+                                                I confirm that this data is anonymized and contains no personally identifiable information
+                                            </label>
+                                        </div>
+
+                                        <div class="d-grid">
+                                            <button type="submit" class="btn btn-primary btn-lg" id="uploadBtn" disabled>
+                                                <i class="fas fa-upload me-2"></i>Upload and Proceed
+                                            </button>
+                                            <div class="progress mt-3 d-none" id="uploadProgress">
+                                                <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%"></div>
+                                            </div>
+                                        </div>
+                                    </form>
+                                </div>
+                                <!-- Batch Upload Tab -->
+                                <div class="tab-pane fade" id="batch" role="tabpanel" aria-labelledby="batch-tab">
+                                    <h4 class="card-title mb-4">Upload Multiple MRI Files</h4>
+
+                                    <form action="{{ url_for('batch_processing') }}" method="post" enctype="multipart/form-data" class="dropzone" id="batchUploadForm">
+                                        <div class="fallback">
+                                            <input name="files[]" type="file" multiple />
+                                        </div>
+                                    </form>
+
+                                    <div class="mt-4">
+                                        <h6 class="fw-bold">Processing Options:</h6>
+                                        <form id="batchProcessForm" action="{{ url_for('batch_processing') }}" method="post">
+                                            <div class="form-check mb-2">
+                                                <input class="form-check-input" type="checkbox" name="process_types" value="segmentation" id="segmentationCheck" checked>
+                                                <label class="form-check-label" for="segmentationCheck">
+                                                    Run Segmentation
+                                                </label>
+                                            </div>
+                                            <div class="form-check mb-2">
+                                                <input class="form-check-input" type="checkbox" name="process_types" value="abnormality" id="abnormalityCheck">
+                                                <label class="form-check-label" for="abnormalityCheck">
+                                                    Run Abnormality Detection
+                                                </label>
+                                            </div>
+                                            <div class="form-check mb-4">
+                                                <input class="form-check-input" type="checkbox" name="process_types" value="analysis" id="analysisCheck">
+                                                <label class="form-check-label" for="analysisCheck">
+                                                    Run Volumetric Analysis
+                                                </label>
+                                            </div>
+
+                                            <div class="mb-3">
+                                                <label for="batchName" class="form-label">Batch Name (optional)</label>
+                                                <input type="text" class="form-control" id="batchName" name="batch_name" placeholder="e.g., Research Study A">
+                                            </div>
+
+                                            <div class="form-check mb-4">
+                                                <input class="form-check-input" type="checkbox" id="batchAgreement" required>
+                                                <label class="form-check-label" for="batchAgreement">
+                                                    I confirm that this data is anonymized and contains no personally identifiable information
+                                                </label>
+                                            </div>
+
+                                            <div class="d-grid">
+                                                <button type="submit" class="btn btn-primary btn-lg" id="processBatchBtn" disabled>
+                                                    <i class="fas fa-cogs me-2"></i>Process Batch
+                                                </button>
+                                            </div>
+                                        </form>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card-footer bg-white py-3">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <i class="fas fa-lock text-muted me-2"></i>
+                                    <span class="text-muted small">Secure upload with SSL encryption</span>
+                                </div>
+                                <div>
+                                    <span class="text-muted small">Max file size: 1 GB</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- FAQ Section -->
+    <section class="py-5 bg-light">
+        <div class="container">
+            <div class="row">
+                <div class="col-lg-8 mx-auto">
+                    <h3 class="fw-bold mb-4 text-center">Frequently Asked Questions</h3>
+
+                    <div class="accordion" id="faqAccordion">
+                        <div class="accordion-item">
+                            <h2 class="accordion-header" id="faqOne">
+                                <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#collapseOne" aria-expanded="true" aria-controls="collapseOne">
+                                    What file formats are supported?
+                                </button>
+                            </h2>
+                            <div id="collapseOne" class="accordion-collapse collapse show" aria-labelledby="faqOne" data-bs-parent="#faqAccordion">
+                                <div class="accordion-body">
+                                    Our platform currently supports NIfTI (.nii), compressed NIfTI (.nii.gz), and FreeSurfer (.mgz, .mgh) file formats. These are standard formats for brain MRI data in research and clinical settings.
+                                </div>
+                            </div>
+                        </div>
+                        <div class="accordion-item">
+                            <h2 class="accordion-header" id="faqTwo">
+                                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseTwo" aria-expanded="false" aria-controls="collapseTwo">
+                                    Is my data secure and private?
+                                </button>
+                            </h2>
+                            <div id="collapseTwo" class="accordion-collapse collapse" aria-labelledby="faqTwo" data-bs-parent="#faqAccordion">
+                                <div class="accordion-body">
+                                    Yes, all data uploads are secured with SSL encryption. Your MRI scans are processed on our secure servers and are automatically deleted after processing. We do not store any patient identifiable information, and you should ensure all data is properly anonymized before uploading.
+                                </div>
+                            </div>
+                        </div>
+                        <div class="accordion-item">
+                            <h2 class="accordion-header" id="faqThree">
+                                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseThree" aria-expanded="false" aria-controls="collapseThree">
+                                    How long does processing take?
+                                </button>
+                            </h2>
+                            <div id="collapseThree" class="accordion-collapse collapse" aria-labelledby="faqThree" data-bs-parent="#faqAccordion">
+                                <div class="accordion-body">
+                                    Processing time depends on the type of analysis and the size of your file. Typically, segmentation takes 2-5 minutes per scan, abnormality detection takes 1-3 minutes, and volumetric analysis takes less than a minute. Batch processing times will scale with the number of files.
+                                </div>
+                            </div>
+                        </div>
+                        <div class="accordion-item">
+                            <h2 class="accordion-header" id="faqFour">
+                                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseFour" aria-expanded="false" aria-controls="collapseFour">
+                                    What preprocessing is required for my MRI files?
+                                </button>
+                            </h2>
+                            <div id="collapseFour" class="accordion-collapse collapse" aria-labelledby="faqFour" data-bs-parent="#faqAccordion">
+                                <div class="accordion-body">
+                                    Our platform works best with T1-weighted brain MRI scans. Ideally, scans should be skull-stripped, but our preprocessing pipeline can handle non-skull-stripped images as well. Scans should be properly oriented in standard space (e.g., RAS or LAS orientation).
+                                </div>
+                            </div>
+                        </div>
+                        <div class="accordion-item">
+                            <h2 class="accordion-header" id="faqFive">
+                                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseFive" aria-expanded="false" aria-controls="collapseFive">
+                                    What should I do if I encounter an error?
+                                </button>
+                            </h2>
+                            <div id="collapseFive" class="accordion-collapse collapse" aria-labelledby="faqFive" data-bs-parent="#faqAccordion">
+                                <div class="accordion-body">
+                                    If you encounter any errors during upload or processing, first check that your file format is supported and that the file isn't corrupted. If issues persist, please contact our support team at support@brain-ai-platform.com with details of the problem and any error messages you received.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Help Section -->
+    <section class="py-5">
+        <div class="container">
+            <div class="row text-center">
+                <div class="col-md-12">
+                    <h3 class="fw-bold mb-4">Need Additional Help?</h3>
+                    <p class="mb-4">If you have questions or need assistance with the upload process, our support team is here to help.</p>
+                    <a href="mailto:support@brain-ai-platform.com" class="btn btn-outline-primary me-2">
+                        <i class="fas fa-envelope me-2"></i>Email Support
+                    </a>
+                    <a href="{{ url_for('documentation') }}" class="btn btn-outline-secondary">
+                        <i class="fas fa-book me-2"></i>View Documentation
+                    </a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="py-4 bg-dark text-white">
+        <div class="container">
+            <div class="row">
+                <div class="col-md-4 mb-4 mb-md-0">
+                    <h5>Brain MRI Analysis Platform</h5>
+                    <p class="small">Advanced tools for brain segmentation, volumetric analysis, and abnormality detection</p>
+                    <p class="small">Version: 1.0.0</p>
+                    <p class="small">Updated: 2025-04-02 15:22:45</p>
+                    <p class="small">Author: KishoreKumarKalli</p>
+                </div>
+                <div class="col-md-2 mb-4 mb-md-0">
+                    <h5>Links</h5>
+                    <ul class="list-unstyled">
+                        <li><a href="{{ url_for('index') }}" class="text-white">Home</a></li>
+                        <li><a href="{{ url_for('upload_file') }}" class="text-white">Upload</a></li>
+                        <li><a href="{{ url_for('documentation') }}" class="text-white">Documentation</a></li>
+                        <li><a href="{{ url_for('about') }}" class="text-white">About</a></li>
+                    </ul>
+                </div>
+                <div class="col-md-2 mb-4 mb-md-0">
+                    <h5>Resources</h5>
+                    <ul class="list-unstyled">
+                        <li><a href="{{ url_for('documentation') }}" class="text-white">API Documentation</a></li>
+                        <li><a href="#" class="text-white">User Guide</a></li>
+                        <li><a href="#" class="text-white">Publications</a></li>
+                        <li><a href="#" class="text-white">FAQ</a></li>
+                    </ul>
+                </div>
+                <div class="col-md-4">
+                    <h5>Contact</h5>
+                    <ul class="list-unstyled">
+                        <li><i class="fas fa-envelope me-2"></i> support@brain-ai-platform.com</li>
+                        <li><i class="fas fa-phone me-2"></i> +1 (555) 123-4567</li>
+                        <li><i class="fas fa-map-marker-alt me-2"></i> 123 Neuroscience Ave, Research Park</li>
+                    </ul>
+                    <div class="social-icons mt-3">
+                        <a href="#" class="text-white me-3"><i class="fab fa-twitter"></i></a>
+                        <a href="#" class="text-white me-3"><i class="fab fa-github"></i></a>
+                        <a href="#" class="text-white me-3"><i class="fab fa-linkedin"></i></a>
+                    </div>
+                </div>
+            </div>
+            <hr class="my-4">
+            <div class="text-center small">
+                <p>&copy; 2025 Brain MRI Analysis Platform. All rights reserved.</p>
+                <p>
+                    <a href="#" class="text-white">Privacy Policy</a> |
+                    <a href="#" class="text-white">Terms of Service</a>
+                </p>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Bootstrap JS Bundle with Popper -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Dropzone JS -->
+    <script src="https://unpkg.com/dropzone@5/dist/min/dropzone.min.js"></script>
+    <!-- Custom JS -->
+    <script src="{{ url_for('static', filename='js/upload.js') }}"></script>
+    <script>
+        // Initialize Dropzone
+        Dropzone.options.batchUploadForm = {
+            paramName: "files[]",
+            maxFilesize: 1024, // MB
+            acceptedFiles: ".nii,.nii.gz,.mgz,.mgh",
+            autoProcessQueue: false,
+            uploadMultiple: true,
+            parallelUploads: 5,
+            maxFiles: 20,
+            addRemoveLinks: true,
+            dictDefaultMessage: "Drop files here or click to upload (up to 20 files)",
+            init: function() {
+                var dropzone = this;
+                var submitButton = document.getElementById("processBatchBtn");
+
+                submitButton.addEventListener("click", function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    dropzone.processQueue();
+                });
+
+                this.on("addedfile", function() {
+                    document.getElementById("batchAgreement").addEventListener("change", function() {
+                        submitButton.disabled = !this.checked || dropzone.files.length === 0;
+                    });
+                    submitButton.disabled = !document.getElementById("batchAgreement").checked;
+                });
+
+                this.on("removedfile", function() {
+                    submitButton.disabled = dropzone.files.length === 0 || !document.getElementById("batchAgreement").checked;
+                });
+
+                this.on("success", function(file, response) {
+                    console.log("Upload successful", response);
+                    // Redirect to batch status page
+                    if (response && response.task_id) {
+                        window.location.href = "/batch-status/" + response.task_id;
+                    }
+                });
+
+                this.on("error", function(file, errorMessage) {
+                    console.error("Upload error", errorMessage);
+                    var errorNote = document.createElement('div');
+                    errorNote.className = 'alert alert-danger mt-3';
+                    errorNote.textContent = typeof errorMessage === 'string' ? errorMessage : 'Upload failed';
+                    file.previewElement.appendChild(errorNote);
+                });
+            }
+        };
+
+        // Handle single file upload form
+        document.addEventListener("DOMContentLoaded", function() {
+            const uploadArea = document.getElementById("uploadArea");
+            const fileInput = document.getElementById("file");
+            const selectedFile = document.getElementById("selectedFile");
+            const fileName = document.getElementById("fileName");
+            const removeFile = document.getElementById("removeFile");
+            const uploadBtn = document.getElementById("uploadBtn");
+            const uploadAgreement = document.getElementById("uploadAgreement");
+            const uploadProgress = document.getElementById("uploadProgress");
+
+            uploadArea.addEventListener("click", function() {
+                fileInput.click();
+            });
+
+            uploadArea.addEventListener("dragover", function(e) {
+                e.preventDefault();
+                uploadArea.classList.add("dragover");
+            });
+
+            uploadArea.addEventListener("dragleave", function() {
+                uploadArea.classList.remove("dragover");
+            });
+
+            uploadArea.addEventListener("drop", function(e) {
+                e.preventDefault();
+                uploadArea.classList.remove("dragover");
+
+                if (e.dataTransfer.files.length) {
+                    fileInput.files = e.dataTransfer.files;
+                    updateSelectedFile();
+                }
+            });
+
+            fileInput.addEventListener("change", updateSelectedFile);
+
+            removeFile.addEventListener("click", function(e) {
+                e.stopPropagation();
+                fileInput.value = "";
+                selectedFile.classList.add("d-none");
+                updateUploadButton();
+            });
+
+            uploadAgreement.addEventListener("change", updateUploadButton);
+
+            document.getElementById("singleUploadForm").addEventListener("submit", function(e) {
+                if (fileInput.files.length === 0) {
+                    e.preventDefault();
+                    alert("Please select a file to upload.");
+                    return;
+                }
+
+                // Show progress bar
+                uploadBtn.disabled = true;
+                uploadProgress.classList.remove("d-none");
+
+                // Simulate progress (in a real app, use fetch API with upload progress)
+                let progress = 0;
+                const progressBar = uploadProgress.querySelector(".progress-bar");
+
+                const interval = setInterval(function() {
+                    progress += 5;
+                    progressBar.style.width = progress + "%";
+
+                    if (progress >= 100) {
+                        clearInterval(interval);
+                    }
+                }, 200);
+            });
+
+            function updateSelectedFile() {
+                if (fileInput.files.length) {
+                    fileName.textContent = fileInput.files[0].name;
+                    selectedFile.classList.remove("d-none");
+                } else {
+                    selectedFile.classList.add("d-none");
+                }
+                updateUploadButton();
+            }
+
+            function updateUploadButton() {
+                uploadBtn.disabled = !(fileInput.files.length && uploadAgreement.checked);
+            }
+        });
+    </script>
+</body>
+</html>

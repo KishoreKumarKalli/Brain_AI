@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Analysis Results - Brain MRI Analysis Platform</title>
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='img/favicon.png') }}">
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <!-- Plotly.js -->
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    <!-- Metadata -->
+    <meta name="description" content="View your brain MRI analysis results">
+    <meta name="keywords" content="brain MRI, results, analysis, medical imaging">
+    <meta name="author" content="KishoreKumarKalli">
+    <meta name="creation-date" content="2025-04-02 15:24:21">
+    <meta name="version" content="1.0.0">
+</head>
+<body>
+    <!-- Navigation Bar -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="{{ url_for('index') }}">
+                <img src="{{ url_for('static', filename='img/logo.png') }}" alt="Brain AI Logo" height="40">
+                Brain MRI Analysis
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav"
+                aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('index') }}">Home</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('upload_file') }}">Upload</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('documentation') }}">Documentation</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('about') }}">About</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Page Header -->
+    <header class="page-header bg-gradient text-white py-5">
+        <div class="container">
+            <div class="row">
+                <div class="col-md-8 mx-auto text-center">
+                    <h1 class="fw-bold">Analysis Results</h1>
+                    <p class="lead">Results for your brain MRI analysis</p>
+                    {% if results.metadata %}
+                    <p class="text-light opacity-75">
+                        <i class="fas fa-clock me-2"></i>Generated on: {{ results.metadata.date }} by {{ results.metadata.author }}
+                    </p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Results Section -->
+    <section class="py-5">
+        <div class="container">
+            <!-- Flash Messages -->
+            {% with messages = get_flashed_messages() %}
+                {% if messages %}
+                    {% for message in messages %}
+                        <div class="alert alert-warning alert-dismissible fade show" role="alert">
+                            {{ message }}
+                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                        </div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+
+            <!-- Summary Card -->
+            <div class="card border-0 shadow-sm mb-5">
+                <div class="card-body p-4">
+                    <h3 class="card-title fw-bold mb-4"><i class="fas fa-clipboard-list text-primary me-2"></i>Summary</h3>
+                    <div class="row">
+                        <div class="col-md-4 mb-3 mb-md-0">
+                            <div class="d-flex align-items-center">
+                                <div class="status-icon {% if results.segmentation %}bg-success{% else %}bg-secondary{% endif %} me-3">
+                                    <i class="fas fa-brain"></i>
+                                </div>
+                                <div>
+                                    <h5 class="mb-0">Segmentation</h5>
+                                    <p class="text-muted mb-0">{% if results.segmentation %}Complete{% else %}Not run{% endif %}</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4 mb-3 mb-md-0">
+                            <div class="d-flex align-items-center">
+                                <div class="status-icon {% if results.abnormality %}bg-success{% else %}bg-secondary{% endif %} me-3">
+                                    <i class="fas fa-exclamation-triangle"></i>
+                                </div>
+                                <div>
+                                    <h5 class="mb-0">Abnormality Detection</h5>
+                                    <p class="text-muted mb-0">{% if results.abnormality %}Complete{% else %}Not run{% endif %}</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="d-flex align-items-center">
+                                <div class="status-icon {% if results.analysis %}bg-success{% else %}bg-secondary{% endif %} me-3">
+                                    <i class="fas fa-chart-pie"></i>
+                                </div>
+                                <div>
+                                    <h5 class="mb-0">Volumetric Analysis</h5>
+                                    <p class="text-muted mb-0">{% if results.analysis %}Complete{% else %}Not run{% endif %}</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    {% if results.report %}
+                    <div class="mt-4 text-center">
+                        <a href="{{ results.report.download_path }}" class="btn btn-primary btn-lg">
+                            <i class="fas fa-file-pdf me-2"></i>Download Complete Report
+                        </a>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Tabs for Different Results -->
+            <ul class="nav nav-tabs mb-4" id="resultsTabs" role="tablist">
+                {% if results.segmentation %}
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link active" id="segmentation-tab" data-bs-toggle="tab" data-bs-target="#segmentation" type="button" role="tab" aria-controls="segmentation" aria-selected="true">
+                        Segmentation
+                    </button>
+                </li>
+                {% endif %}
+                {% if results.abnormality %}
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link {% if not results.segmentation %}active{% endif %}" id="abnormality-tab" data-bs-toggle="tab" data-bs-target="#abnormality" type="button" role="tab" aria-controls="abnormality" aria-selected="{% if not results.segmentation %}true{% else %}false{% endif %}">
+                        Abnormality Detection
+                    </button>
+                </li>
+                {% endif %}
+                {% if results.analysis %}
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link {% if not results.segmentation and not results.abnormality %}active{% endif %}" id="analysis-tab" data-bs-toggle="tab" data-bs-target="#analysis" type="button" role="tab" aria-controls="analysis" aria-selected="{% if not results.segmentation and not results.abnormality %}true{% else %}false{% endif %}">
+                        Volumetric Analysis
+                    </button>
+                </li>
+                {% endif %}
+            </ul>
+
+            <!-- Tab Content -->
+            <div class="tab-content" id="resultsTabContent">
+                <!-- Segmentation Results Tab -->
+                {% if results.segmentation %}
+                <div class="tab-pane fade show active" id="segmentation" role="tabpanel" aria-labelledby="segmentation-tab">
+                    <div class="card border-0 shadow-sm mb-4">
+                        <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+                            <h4 class="mb-0 fw-bold">Brain Segmentation Results</h4>
+                            <a href="{{ results.segmentation.download_path }}" class="btn btn-outline-primary">
+                                <i class="fas fa-download me-2"></i>Download Results
+                            </a>
+                        </div>
+                        <div class="card-body p-4">
+                            <div class="row">
+                                <div class="col-lg-12 text-center mb-4">
+                                    <div class="result-image-container">
+                                        <img src="{{ url_for('static', filename=results.segmentation.visualization) }}" alt="Segmentation Visualization" class="img-fluid rounded">
+                                    </div>
+                                    <p class="text-muted mt-2">Multi-view visualization of brain segmentation</p>
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col-lg-12">
+                                    <h5 class="fw-bold mb-3">Segmentation Details</h5>
+                                    <p>The segmentation process identifies and labels different structures in the brain. The colors in the visualization represent different anatomical regions:</p>
+                                    <div class="row g-3 mb-4">
+                                        <div class="col-md-3 col-6">
+                                            <div class="d-flex align-items-center">
+                                                <div class="color-swatch bg-label-1 me-2"></div>
+                                                <span>Grey Matter</span>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-3 col-6">
+                                            <div class="d-flex align-items-center">
+                                                <div class="color-swatch bg-label-2 me-2"></div>
+                                                <span>White Matter</span>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-3 col-6">
+                                            <div class="d-flex align-items-center">
+                                                <div class="color-swatch bg-label-3 me-2"></div>
+                                                <span>CSF</span>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-3 col-6">
+                                            <div class="d-flex align-items-center">
+                                                <div class="color-swatch bg-label-4 me-2"></div>
+                                                <span>Cerebellum</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <p>You can download the segmentation results to view in other medical imaging software or for further analysis.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+                <!-- Abnormality Detection Results Tab -->
+                {% if results.abnormality %}
+                <div class="tab-pane fade {% if not results.segmentation %}show active{% endif %}" id="abnormality" role="tabpanel" aria-labelledby="abnormality-tab">
+                    <div class="card border-0 shadow-sm mb-4">
+                        <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+                            <h4 class="mb-0 fw-bold">Abnormality Detection Results</h4>
+                            <a href="{{ results.abnormality.download_path }}" class="btn btn-outline-primary">
+                                <i class="fas fa-download me-2"></i>Download Results
+                            </a>
+                        </div>
+                        <div class="card-body p-4">
+                            <div class="row align-items-center mb-4">
+                                <div class="col-md-8">
+                                    <div class="result-image-container">
+                                        <img src="{{ url_for('static', filename=results.abnormality.visualization) }}" alt="Abnormality Visualization" class="img-fluid rounded">
+                                    </div>
+                                    <p class="text-muted mt-2">Abnormality heatmap overlay on brain MRI</p>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="card h-100 bg-light border-0">
+                                        <div class="card-body">
+                                            <h5 class="fw-bold mb-3">Abnormality Assessment</h5>
+
+                                            {% if results.abnormality.is_abnormal is not none %}
+                                                <div class="abnormality-score-container text-center mb-4">
+                                                    <div class="abnormality-gauge mx-auto" data-score="{{ results.abnormality.abnormality_score }}">
+                                                        <div class="gauge-value" id="abnormalityGauge"></div>
+                                                    </div>
+                                                    <div class="mt-3">
+                                                        <h4 class="fw-bold mb-1">{{ "%.2f"|format(results.abnormality.abnormality_score) }}</h4>
+                                                        <p class="text-muted mb-0">Abnormality Score</p>
+                                                    </div>
+                                                </div>
+
+                                                <div class="abnormality-status text-center p-3 rounded mb-3
+                                                    {% if results.abnormality.is_abnormal %}bg-danger-light text-danger{% else %}bg-success-light text-success{% endif %}">
+                                                    <i class="fas {% if results.abnormality.is_abnormal %}fa-exclamation-circle{% else %}fa-check-circle{% endif %} me-2"></i>
+                                                    <span class="fw-bold">
+                                                        {% if results.abnormality.is_abnormal %}
+                                                            Potential abnormalities detected
+                                                        {% else %}
+                                                            No significant abnormalities detected
+                                                        {% endif %}
+                                                    </span>
+                                                </div>
+                                            {% else %}
+                                                <div class="text-center p-3">
+                                                    <p class="text-muted">Detailed abnormality assessment not available</p>
+                                                </div>
+                                            {% endif %}
+
+                                            <p class="small">The abnormality detection algorithm identifies regions that deviate from typical brain structure patterns. Higher scores indicate higher probability of abnormality.</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="row">
+                                <div class="col-lg-12">
+                                    <h5 class="fw-bold mb-3">Interpretation Guide</h5>
+                                    <p>The heatmap visualization shows potential abnormalities, with color intensity indicating the confidence level:</p>
+                                    <div class="d-flex justify-content-between mb-3">
+                                        <div class="d-flex align-items-center">
+                                            <div class="color-gradient-start me-2"></div>
+                                            <span>Low confidence</span>
+                                        </div>
+                                        <div class="color-gradient-bar mx-2"></div>
+                                        <div class="d-flex align-items-center">
+                                            <div class="color-gradient-end me-2"></div>
+                                            <span>High confidence</span>
+                                        </div>
+                                    </div>
+                                    <div class="alert alert-info" role="alert">
+                                        <i class="fas fa-info-circle me-2"></i>
+                                        <span>Note: This is a computational assessment and should not replace clinical evaluation. Always consult with a healthcare professional for medical diagnosis.</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+
+                <!-- Volumetric Analysis Results Tab -->
+                {% if results.analysis %}
+                <div class="tab-pane fade {% if not results.segmentation and not results.abnormality %}show active{% endif %}" id="analysis" role="tabpanel" aria-labelledby="analysis-tab">
+                    <div class="card border-0 shadow-sm mb-4">
+                        <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+                            <h4 class="mb-0 fw-bold">Volumetric Analysis Results</h4>
+                            <a href="{{ results.analysis.download_path }}" class="btn btn-outline-primary">
+                                <i class="fas fa-download me-2"></i>Download Results
+                            </a>
+                        </div>
+                        <div class="card-body p-4">
+                            <div class="row">
+                                <div class="col-lg-6 mb-4">
+                                    <div class="result-image-container">
+                                        <img src="{{ url_for('static', filename=results.analysis.chart) }}" alt="Volume Comparison Chart" class="img-fluid rounded">
+                                    </div>
+                                    <p class="text-muted mt-2">Comparison of structure volumes relative to total brain volume</p>
+                                </div>
+                                <div class="col-lg-6 mb-4">
+                                    <div class="card h-100 bg-light border-0">
+                                        <div class="card-body p-4">
+                                            <h5 class="fw-bold mb-3">Key Metrics</h5>
+                                            <div class="row g-3">
+                                                <div class="col-6">
+                                                    <div class="metric-card p-3 bg-white rounded shadow-sm text-center">
+                                                        <h3 class="fw-bold mb-1" id="totalBrainVolume">1,250.5</h3>
+                                                        <p class="text-muted mb-0">Total Brain Volume (cm³)</p>
+                                                    </div>
+                                                </div>
+                                                <div class="col-6">
+                                                    <div class="metric-card p-3 bg-white rounded shadow-sm text-center">
+                                                        <h3 class="fw-bold mb-1" id="intracranialVolume">1,465.8</h3>
+                                                        <p class="text-muted mb-0">Intracranial Volume (cm³)</p>
+                                                    </div>
+                                                </div>
+                                                <div class="col-6">
+                                                    <div class="metric-card p-3 bg-white rounded shadow-sm text-center">
+                                                        <h3 class="fw-bold mb-1" id="greyMatterVolume">625.3</h3>
+                                                        <p class="text-muted mb-0">Grey Matter Volume (cm³)</p>
+                                                    </div>
+                                                </div>
+                                                <div class="col-6">
+                                                    <div class="metric-card p-3 bg-white rounded shadow-sm text-center">
+                                                        <h3 class="fw-bold mb-1" id="whiteMatterVolume">500.2</h3>
+                                                        <p class="text-muted mb-0">White Matter Volume (cm³)</p>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="mt-3">
+                                                <p class="small">These measurements are derived from the segmentation results and provide quantitative assessment of brain structures.</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <h5 class="fw-bold mb-3">Detailed Volume Measurements</h5>
+                            {% if results.analysis.volumes_table %}
+                                <div class="table-responsive">
+                                    {{ results.analysis.volumes_table|safe }}
+                                </div>
+                            {% else %}
+                                <div class="alert alert-info" role="alert">
+                                    <i class="fas fa-info-circle me-2"></i>
+                                    <span>Detailed volume measurements data not available. Download the full results for complete information.</span>
+                                </div>
+                            {% endif %}
+
+                            <div class="mt-4">
+                                <h5 class="fw-bold mb-3">Interpretation Notes</h5>
+                                <div class="alert alert-light border" role="alert">
+                                    <p>Volumetric analysis provides quantitative measurements of brain structures, which can be useful for:</p>
+                                    <ul>
+                                        <li>Tracking changes over time in longitudinal studies</li>
+                                        <li>Comparing with age-matched reference data (not included in this analysis)</li>
+                                        <li>Assessing asymmetries between left and right hemispheres</li>
+                                        <li>Supporting diagnosis of neurodegenerative conditions</li>
+                                    </ul>
+                                    <p class="mb-0">For clinical interpretation, these measurements should be evaluated in the context of patient history, symptoms, and other diagnostic information.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+
+            <!-- No Results Warning -->
+            {% if not results.segmentation and not results.abnormality and not results.analysis %}
+            <div class="alert alert-warning text-center p-4" role="alert">
+                <i class="fas fa-exclamation-triangle fa-2x mb-3"></i>
+                <h4 class="alert-heading">No Results Available</h4>
+                <p>No analysis results were found for this session. This could be because:</p>
+                <ul class="list-unstyled">
+                    <li>The analysis is still in progress</li>
+                    <li>There was an error during processing</li>
+                    <li>No analysis options were selected</li>
+                </ul>
+                <hr>
+                <p class="mb-0">
+                    <a href="{{ url_for('upload_file') }}" class="btn btn-outline-warning">Return to Upload Page</a>
+                </p>
+            </div>
+            {% endif %}
+
+            <!-- Actions -->
+            <div class="d-flex justify-content-between mt-4">
+                <a href="{{ url_for('upload_file') }}" class="btn btn-outline-secondary">
+                    <i class="fas fa-arrow-left me-2"></i>Upload Another Scan
+                </a>
+                {% if results.report %}
+                <a href="{{ results.report.download_path }}" class="btn btn-primary">
+                    <i class="fas fa-file-pdf me-2"></i>Download Full Report
+                </a>
+                {% endif %}
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="py-4 bg-dark text-white">
+        <div class="container">
+            <div class="row">
+                <div class="col-md-4 mb-4 mb-md-0">
+                    <h5>Brain MRI Analysis Platform</h5>
+                    <p class="small">Advanced tools for brain segmentation, volumetric analysis, and abnormality detection</p>
+                    <p class="small">Version: 1.0.0</p>
+                    <p class="small">Updated: 2025-04-02 15:26:12</p>
+                    <p class="small">Author: KishoreKumarKalli</p>
+                </div>
+                <div class="col-md-2 mb-4 mb-md-0">
+                    <h5>Links</h5>
+                    <ul class="list-unstyled">
+                        <li><a href="{{ url_for('index') }}" class="text-white">Home</a></li>
+                        <li><a href="{{ url_for('upload_file') }}" class="text-white">Upload</a></li>
+                        <li><a href="{{ url_for('documentation') }}" class="text-white">Documentation</a></li>
+                        <li><a href="{{ url_for('about') }}" class="text-white">About</a></li>
+                    </ul>
+                </div>
+                <div class="col-md-2 mb-4 mb-md-0">
+                    <h5>Resources</h5>
+                    <ul class="list-unstyled">
+                        <li><a href="{{ url_for('documentation') }}" class="text-white">API Documentation</a></li>
+                        <li><a href="#" class="text-white">User Guide</a></li>
+                        <li><a href="#" class="text-white">Publications</a></li>
+                        <li><a href="#" class="text-white">FAQ</a></li>
+                    </ul>
+                </div>
+                <div class="col-md-4">
+                    <h5>Contact</h5>
+                    <ul class="list-unstyled">
+                        <li><i class="fas fa-envelope me-2"></i> support@brain-ai-platform.com</li>
+                        <li><i class="fas fa-phone me-2"></i> +1 (555) 123-4567</li>
+                        <li><i class="fas fa-map-marker-alt me-2"></i> 123 Neuroscience Ave, Research Park</li>
+                    </ul>
+                    <div class="social-icons mt-3">
+                        <a href="#" class="text-white me-3"><i class="fab fa-twitter"></i></a>
+                        <a href="#" class="text-white me-3"><i class="fab fa-github"></i></a>
+                        <a href="#" class="text-white me-3"><i class="fab fa-linkedin"></i></a>
+                    </div>
+                </div>
+            </div>
+            <hr class="my-4">
+            <div class="text-center small">
+                <p>&copy; 2025 Brain MRI Analysis Platform. All rights reserved.</p>
+                <p>
+                    <a href="#" class="text-white">Privacy Policy</a> |
+                    <a href="#" class="text-white">Terms of Service</a>
+                </p>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Bootstrap JS Bundle with Popper -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Custom JS -->
+    <script src="{{ url_for('static', filename='js/results.js') }}"></script>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Initialize abnormality gauge if it exists
+            const gaugeElement = document.getElementById('abnormalityGauge');
+            if (gaugeElement) {
+                const score = parseFloat(gaugeElement.parentElement.dataset.score);
+                const data = [{
+                    domain: { x: [0, 1], y: [0, 1] },
+                    value: score,
+                    title: { text: "Abnormality Score" },
+                    type: "indicator",
+                    mode: "gauge+number",
+                    gauge: {
+                        axis: { range: [0, 1] },
+                        bar: { color: "darkgray" },
+                        steps: [
+                            { range: [0, 0.3], color: "green" },
+                            { range: [0.3, 0.7], color: "gold" },
+                            { range: [0.7, 1], color: "red" }
+                        ],
+                        threshold: {
+                            line: { color: "red", width: 4 },
+                            thickness: 0.75,
+                            value: 0.7
+                        }
+                    }
+                }];
+
+                const layout = {
+                    width: 220,
+                    height: 150,
+                    margin: { t: 25, r: 25, l: 25, b: 25 },
+                    font: { size: 12 }
+                };
+
+                Plotly.newPlot(gaugeElement, data, layout);
+            }
+
+            // Example: Populate volume metrics from data attributes
+            // In a real app, these would come from the server
+            // Sample code shown for demonstration
+            const totalBrainVolume = document.getElementById('totalBrainVolume');
+            const intracranialVolume = document.getElementById('intracranialVolume');
+            const greyMatterVolume = document.getElementById('greyMatterVolume');
+            const whiteMatterVolume = document.getElementById('whiteMatterVolume');
+
+            // Format numbers with commas for better readability
+            function formatNumber(num) {
+                return new Intl.NumberFormat().format(num);
+            }
+
+            // Sample data - in a real app this would be populated from backend
+            const sampleData = {
+                totalBrain: 1250.5,
+                intracranial: 1465.8,
+                greyMatter: 625.3,
+                whiteMatter: 500.2
+            };
+
+            if (totalBrainVolume) totalBrainVolume.textContent = formatNumber(sampleData.totalBrain);
+            if (intracranialVolume) intracranialVolume.textContent = formatNumber(sampleData.intracranial);
+            if (greyMatterVolume) greyMatterVolume.textContent = formatNumber(sampleData.greyMatter);
+            if (whiteMatterVolume) whiteMatterVolume.textContent = formatNumber(sampleData.whiteMatter);
+        });
+    </script>
+</body>
+</html>
